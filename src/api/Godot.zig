@@ -104,7 +104,7 @@ pub fn getGodotObjectPtr(inst: anytype) *const ?*anyopaque {
 }
 
 pub fn cast(comptime T: type, inst: anytype) ?T {
-    if (@typeInfo(@TypeOf(inst)) == .Optional) {
+    if (@typeInfo(@TypeOf(inst)) == .optional) {
         if (inst) |i| {
             return .{ .godot_object = i.godot_object };
         } else {
