@@ -1,5 +1,6 @@
 .{
-    .name = "godot",
+    .name = .godot,
+    .fingerprint = 0x74a61aa48e9841ab,
     .version = "0.0.0-dev",
     .dependencies = .{
         .case = .{
