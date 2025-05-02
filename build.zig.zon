@@ -8,7 +8,7 @@
             .hash = "case-0.0.1-chGYq3zEAACCYSlQhW6K9Gd8g93Wv8gQOIrNY7xTt8Up",
         },
     },
-    .minimum_zig_version = "0.13.0",
+    .minimum_zig_version = "0.14.0",
 
     .paths = .{
         "LICENSE",
