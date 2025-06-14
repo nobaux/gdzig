@@ -18,7 +18,9 @@ pub fn build(b: *std.Build) !void {
     build_options.addOption([]const u8, "precision", precision);
     build_options.addOption([]const u8, "headers", headers);
 
-    const gdextension = build_gdextension(b, godot_path, headers);
+    const headers_source = parseHeadersOption(b, headers);
+    const gdextension = buildGdExtension(b, godot_path, headers_source);
+
     const binding_generator_step = b.step("binding_generator", "Build the binding_generator program");
     const binding_generator = b.addExecutable(.{
         .name = "binding_generator",
@@ -100,54 +102,93 @@ const GDExtensionOutput = struct {
     iface_headers: std.Build.LazyPath,
 };
 
+const HeadersOption = enum {
+    vendored,
+    generated,
+    custom,
+};
+
+const HeadersSource = union(HeadersOption) {
+    vendored: void,
+    generated: void,
+    custom: std.Build.LazyPath,
+};
+
+fn parseHeadersOption(b: *std.Build, headers_option: []const u8) HeadersSource {
+    if (headers_option.len == 0) {
+        return .generated;
+    }
+
+    const headers_option_lower = std.ascii.allocLowerString(b.allocator, headers_option) catch @panic("OOM");
+    const header_option = std.meta.stringToEnum(HeadersOption, headers_option_lower);
+
+    if (header_option) |opt| switch (opt) {
+        .generated => return .generated,
+        .vendored => return .vendored,
+        else => {},
+    };
+
+    return .{
+        .custom = .{
+            .cwd_relative = headers_option,
+        },
+    };
+}
+
 /// Dump the Godot headers and interface files to the bindgen_path.
-fn build_gdextension(
+fn buildGdExtension(
     b: *std.Build,
     godot_path: []const u8,
-    headers_option: []const u8,
+    headers_source: HeadersSource,
 ) GDExtensionOutput {
     const dump_step = b.step("dump", "dump godot headers");
     var iface_headers: std.Build.LazyPath = undefined;
     var api_json: std.Build.LazyPath = undefined;
-    if (std.mem.eql(u8, headers_option, "VENDORED")) {
-        const vendor_path = b.path("vendor");
-        const vendor_json = b.addInstallFile(vendor_path, "extension_api.json");
-        const vendor_h = b.addInstallFile(vendor_path, "gdextension_interface.h");
-        iface_headers = vendor_h.source;
-        api_json = vendor_json.source;
-        dump_step.dependOn(&vendor_h.step);
-        dump_step.dependOn(&vendor_json.step);
-    } else if (std.mem.eql(u8, headers_option, "GENERATED")) {
-        const tmpdir = b.makeTempPath();
-        const dump_cmd = b.addSystemCommand(&.{
-            godot_path, "--dump-extension-api", "--dump-gdextension-interface", "--headless",
-        });
-        dump_cmd.setCwd(.{ .cwd_relative = tmpdir });
-        const output_dir = b.addInstallDirectory(.{
-            .source_dir = .{ .cwd_relative = tmpdir },
-            .install_dir = .prefix,
-            .install_subdir = BINDGEN_INSTALL_RELPATH,
-        });
-        output_dir.step.dependOn(&dump_cmd.step);
-        dump_step.dependOn(&output_dir.step);
-        iface_headers = output_dir.options.source_dir.path(b, "gdextension_interface.h");
-        api_json = output_dir.options.source_dir.path(b, "extension_api.json");
-    } else {
-        const custom_json = b.pathJoin(&.{ headers_option, "extension_api.json" });
-        const custom_h = b.pathJoin(&.{ headers_option, "gdextension_interface.h" });
-        const install_iface_headers = b.addInstallFile(
-            .{ .cwd_relative = custom_json },
-            b.pathJoin(&.{ BINDGEN_INSTALL_RELPATH, "extension_api.json" }),
-        );
-        dump_step.dependOn(&install_iface_headers.step);
-        iface_headers = install_iface_headers.source;
-        const install_api_json = b.addInstallFile(
-            .{ .cwd_relative = custom_h },
-            b.pathJoin(&.{ BINDGEN_INSTALL_RELPATH, "gdextension_interface.h" }),
-        );
-        dump_step.dependOn(&install_api_json.step);
-        api_json = install_api_json.source;
+
+    switch (headers_source) {
+        .generated => {
+            const tmpdir = b.makeTempPath();
+            const dump_cmd = b.addSystemCommand(&.{
+                godot_path, "--dump-extension-api", "--dump-gdextension-interface", "--headless",
+            });
+            dump_cmd.setCwd(.{ .cwd_relative = tmpdir });
+            const output_dir = b.addInstallDirectory(.{
+                .source_dir = .{ .cwd_relative = tmpdir },
+                .install_dir = .prefix,
+                .install_subdir = BINDGEN_INSTALL_RELPATH,
+            });
+            output_dir.step.dependOn(&dump_cmd.step);
+            dump_step.dependOn(&output_dir.step);
+            iface_headers = output_dir.options.source_dir.path(b, "gdextension_interface.h");
+            api_json = output_dir.options.source_dir.path(b, "extension_api.json");
+        },
+        .vendored => {
+            const vendor_path = b.path("vendor");
+            const vendor_json = b.addInstallFile(vendor_path.path(b, "extension_api.json"), "extension_api.json");
+            const vendor_h = b.addInstallFile(vendor_path.path(b, "gdextension_interface.h"), "gdextension_interface.h");
+            iface_headers = vendor_h.source;
+            api_json = vendor_json.source;
+            dump_step.dependOn(&vendor_h.step);
+            dump_step.dependOn(&vendor_json.step);
+        },
+        .custom => |custom_path| {
+            const custom_json = custom_path.path(b, "extension_api.json");
+            const custom_h = custom_path.path(b, "gdextension_interface.h");
+            const install_iface_headers = b.addInstallFile(
+                custom_json,
+                b.pathJoin(&.{ BINDGEN_INSTALL_RELPATH, "extension_api.json" }),
+            );
+            dump_step.dependOn(&install_iface_headers.step);
+            iface_headers = install_iface_headers.source;
+            const install_api_json = b.addInstallFile(
+                custom_h,
+                b.pathJoin(&.{ BINDGEN_INSTALL_RELPATH, "gdextension_interface.h" }),
+            );
+            dump_step.dependOn(&install_api_json.step);
+            api_json = install_api_json.source;
+        },
     }
+
     return GDExtensionOutput{
         .step = dump_step,
         .api_json = api_json,

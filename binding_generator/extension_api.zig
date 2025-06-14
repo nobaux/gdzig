@@ -116,6 +116,7 @@ classes: []struct {
         name: string,
         is_const: bool,
         is_static: bool,
+        is_required: bool = false,
         is_vararg: bool,
         is_virtual: bool,
         hash: u64 = 0,
