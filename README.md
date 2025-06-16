@@ -7,8 +7,8 @@ Issue report, feature request and pull request are all welcome.
 
 ## Prerequisites
 
-1. zig 0.14
-2. godot 4.3
+1. zig 0.14.1
+2. godot 4.4
 
 ## Usage:
 
