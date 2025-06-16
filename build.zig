@@ -69,6 +69,13 @@ pub fn build(b: *std.Build) !void {
     godot_core_module.addImport("godot", godot_module);
 
     godot_module.addImport("GodotCore", godot_core_module);
+
+    const lib = b.addSharedLibrary(.{
+        .name = "godot",
+        .root_module = godot_module,
+    });
+
+    b.installArtifact(lib);
 }
 
 const BindgenOutput = struct {
