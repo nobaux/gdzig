@@ -28,18 +28,33 @@ pub fn build(b: *std.Build) !void {
 
     const gdextension = buildGdExtension(b, godot_path, headers_source);
 
-    const binding_generator_step = b.step("binding_generator", "Build the binding_generator program");
+    const gdextension_c = b.addTranslateC(.{
+        .link_libc = true,
+        .optimize = optimize,
+        .target = target,
+        .root_source_file = gdextension.iface_headers,
+    });
+    gdextension_c.step.dependOn(gdextension.step);
+
+    const gdextension_mod = b.createModule(.{
+        .root_source_file = gdextension_c.getOutput(),
+        .optimize = optimize,
+        .target = target,
+        .link_libc = true,
+    });
+
     const binding_generator = b.addExecutable(.{
         .name = "binding_generator",
         .target = target,
         .optimize = optimize,
-        .root_source_file = b.path(b.pathJoin(&.{ "binding_generator", "main.zig" })),
+        .root_source_file = b.path("binding_generator/main.zig"),
         .link_libc = true,
     });
-    binding_generator.step.dependOn(gdextension.step);
-    binding_generator.addIncludePath(gdextension.iface_headers.dirname());
-    binding_generator_step.dependOn(&binding_generator.step);
+    binding_generator.root_module.addImport("gdextension", gdextension_mod);
     b.installArtifact(binding_generator);
+
+    const binding_generator_step = b.step("binding_generator", "Build the binding_generator program");
+    binding_generator_step.dependOn(&binding_generator.step);
 
     const lib_case = b.dependency("case", .{});
     binding_generator.root_module.addImport("case", lib_case.module("case"));
