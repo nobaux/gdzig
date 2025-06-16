@@ -12,7 +12,7 @@ Issue report, feature request and pull request are all welcome.
 
 ## Usage:
 
-see [Examples](https://github.com/godot-zig/godot-zig-examples) for reference.
+see [Examples](https://github.com/doubleword-labs/godot-zig-examples) for reference.
 
 ## Code Sample:
 
