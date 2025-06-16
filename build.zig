@@ -12,13 +12,20 @@ pub fn build(b: *std.Build) !void {
     const headers = b.option(
         []const u8,
         "headers",
-        "Where to source Godot header files. [options: GENERATED, VENDORED, <dir_path>] [default: GENERATED]",
-    ) orelse "GENERATED";
-    const build_options = b.addOptions();
-    build_options.addOption([]const u8, "precision", precision);
-    build_options.addOption([]const u8, "headers", headers);
+        "Where to source Godot header files. [options: GENERATED, VENDORED, DEPENDENCY, <dir_path>] [default: GENERATED]",
+    );
 
     const headers_source = parseHeadersOption(b, headers);
+
+    const build_options = b.addOptions();
+    build_options.addOption([]const u8, "precision", precision);
+    build_options.addOption([]const u8, "headers", switch (headers_source) {
+        .dependency => "DEPENDENCY",
+        .vendored => "VENDORED",
+        .generated => "GENERATED",
+        .custom => headers.?,
+    });
+
     const gdextension = buildGdExtension(b, godot_path, headers_source);
 
     const binding_generator_step = b.step("binding_generator", "Build the binding_generator program");
@@ -79,10 +86,12 @@ fn build_bindgen(
     const output_path = makeTempPathRelative(b) catch unreachable;
     defer b.allocator.free(output_path);
 
+    const mode = if (b.verbose) "verbose" else "quiet";
+
     run_binding_generator.addArtifactArg(binding_generator);
     run_binding_generator.addDirectoryArg(godot_headers_path);
     const output_lazypath = run_binding_generator.addOutputDirectoryArg(output_path);
-    run_binding_generator.addArgs(&.{ precision, arch });
+    run_binding_generator.addArgs(&.{ precision, arch, mode });
     const install_bindgen = b.addInstallDirectory(.{
         .source_dir = output_lazypath,
         .install_dir = .prefix,
@@ -103,26 +112,29 @@ const GDExtensionOutput = struct {
 };
 
 const HeadersOption = enum {
+    dependency,
     vendored,
     generated,
     custom,
 };
 
 const HeadersSource = union(HeadersOption) {
+    dependency: void,
     vendored: void,
     generated: void,
     custom: std.Build.LazyPath,
 };
 
-fn parseHeadersOption(b: *std.Build, headers_option: []const u8) HeadersSource {
-    if (headers_option.len == 0) {
+fn parseHeadersOption(b: *std.Build, headers_option: ?[]const u8) HeadersSource {
+    if (headers_option == null or headers_option.?.len == 0) {
         return .generated;
     }
 
-    const headers_option_lower = std.ascii.allocLowerString(b.allocator, headers_option) catch @panic("OOM");
+    const headers_option_lower = std.ascii.allocLowerString(b.allocator, headers_option.?) catch @panic("OOM");
     const header_option = std.meta.stringToEnum(HeadersOption, headers_option_lower);
 
     if (header_option) |opt| switch (opt) {
+        .dependency => return .dependency,
         .generated => return .generated,
         .vendored => return .vendored,
         else => {},
@@ -130,7 +142,7 @@ fn parseHeadersOption(b: *std.Build, headers_option: []const u8) HeadersSource {
 
     return .{
         .custom = .{
-            .cwd_relative = headers_option,
+            .cwd_relative = headers_option.?,
         },
     };
 }
@@ -146,6 +158,16 @@ fn buildGdExtension(
     var api_json: std.Build.LazyPath = undefined;
 
     switch (headers_source) {
+        .dependency => {
+            const godot_cpp = b.dependency("godot_cpp", .{});
+            const gdextension_interface_h = godot_cpp.builder.path("gdextension/gdextension_interface.h");
+            const extension_api_json = godot_cpp.builder.path("gdextension/extension_api.json");
+            iface_headers = gdextension_interface_h;
+            api_json = extension_api_json;
+
+            gdextension_interface_h.addStepDependencies(dump_step);
+            extension_api_json.addStepDependencies(dump_step);
+        },
         .generated => {
             const tmpdir = b.makeTempPath();
             const dump_cmd = b.addSystemCommand(&.{

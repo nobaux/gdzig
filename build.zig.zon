@@ -7,6 +7,10 @@
             .url = "git+https://github.com/travisstaloch/case.git#57aa52a376cee0e826526972c9becc63d0d48093",
             .hash = "case-0.0.1-chGYq3zEAACCYSlQhW6K9Gd8g93Wv8gQOIrNY7xTt8Up",
         },
+        .godot_cpp = .{
+            .url = "https://github.com/godotengine/godot-cpp/archive/refs/heads/4.4.tar.gz",
+            .hash = "N-V-__8AAJvIeABgT5UIxF6GOJediw0qZYqfwvrgwovjmevl",
+        },
     },
     .minimum_zig_version = "0.14.0",
 

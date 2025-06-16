@@ -14,6 +14,13 @@ const ProcType = enum { UtilityFunction, BuiltinClassMethod, EngineClassMethod, 
 
 var outpath: []const u8 = undefined;
 
+const Mode = enum {
+    quiet,
+    verbose,
+};
+
+var mode: Mode = .quiet;
+
 var temp_buf: *StreamBuilder(u8, 1024 * 1024) = undefined;
 
 var cwd: std.fs.Dir = undefined;
@@ -145,6 +152,56 @@ fn parseSingletons(api: anytype) !void {
     for (api.value.singletons) |sg| {
         try singletons_map.put(sg.name, sg.type);
     }
+}
+
+fn parseFunctionPointers(allocator: Allocator, header_path: []const u8) !std.StringHashMapUnmanaged([]const u8) {
+    const header_file = try std.fs.openFileAbsolute(header_path, .{});
+    var buffered_reader = std.io.bufferedReader(header_file.reader());
+    const reader = buffered_reader.reader();
+
+    var fp_map = std.StringHashMapUnmanaged([]const u8){};
+
+    const name_doc = "@name";
+
+    var buf: [1024]u8 = undefined;
+    var fn_name: ?[]const u8 = null;
+    var fp_type: ?[]const u8 = null;
+    const safe_ident_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+
+    while (true) {
+        const line: []const u8 = reader.readUntilDelimiterOrEof(&buf, '\n') catch break orelse break;
+
+        if (std.mem.containsAtLeast(u8, line, 1, name_doc)) {
+            const name_index = std.mem.indexOf(u8, line, name_doc).?;
+            const start = name_index + name_doc.len + 1; // +1 to skip the space after @name
+            fn_name = try allocator.dupe(u8, line[start..]);
+            fp_type = null;
+        } else if (std.mem.startsWith(u8, line, "typedef")) {
+            if (fn_name == null) continue; // skip if we don't have a function name yet
+
+            var iterator = std.mem.splitSequence(u8, line, " ");
+            _ = iterator.next(); // skip "typedef"
+            const const_or_return_type = iterator.next().?; // skip the return type
+            if (std.mem.eql(u8, const_or_return_type, "const")) {
+                // skip "const" keyword
+                _ = iterator.next();
+            }
+
+            const fp_type_slice = iterator.next().?;
+            const start = std.mem.indexOfAny(u8, fp_type_slice, safe_ident_chars).?;
+            const end = std.mem.indexOf(u8, fp_type_slice[start..], ")").?;
+            fp_type = try allocator.dupe(u8, fp_type_slice[start..(end + start)]);
+        }
+
+        if (fn_name) |_| if (fp_type) |_| {
+            try fp_map.putNoClobber(allocator, fp_type.?, fn_name.?);
+
+            fn_name = null;
+            fp_type = null;
+        };
+    }
+
+    return fp_map;
 }
 
 fn isStringType(type_name: string) bool {
@@ -969,7 +1026,7 @@ fn generateClasses(api: anytype, allocator: std.mem.Allocator, comptime is_built
     }
 }
 
-fn generateGodotCore(allocator: std.mem.Allocator) !void {
+fn generateGodotCore(allocator: std.mem.Allocator, fp_map: *const std.StringHashMapUnmanaged([]const u8)) !void {
     var code_builder = try StreamBuilder(u8, 10 * 1024 * 1024).init(allocator);
     defer code_builder.deinit();
 
@@ -1000,25 +1057,24 @@ fn generateGodotCore(allocator: std.mem.Allocator) !void {
     ;
     try code_builder.writeLine(0, callback_decl_code);
 
-    var temp: [1024]u8 = undefined;
-
     for (comptime std.meta.declarations(C)) |decl| {
         if (std.mem.startsWith(u8, decl.name, "GDExtensionInterface")) {
-            const res1 = try std.mem.replaceOwned(u8, allocator, decl.name, "GDExtensionInterface", "");
-            defer allocator.free(res1);
-            if (std.mem.eql(u8, res1, "FunctionPtr") or std.mem.eql(u8, res1, "GetProcAddress")) {
+            const type_suffix = try std.mem.replaceOwned(u8, allocator, decl.name, "GDExtensionInterface", "");
+            defer allocator.free(type_suffix);
+            if (std.mem.eql(u8, type_suffix, "FunctionPtr") or std.mem.eql(u8, type_suffix, "GetProcAddress")) {
                 continue;
             }
 
-            const res2 = try std.mem.replaceOwned(u8, allocator, res1, "PlaceHolder", "Placeholder");
+            const res2 = try std.mem.replaceOwned(u8, allocator, type_suffix, "PlaceHolder", "Placeholder");
             defer allocator.free(res2);
             var res = try std.mem.replaceOwned(u8, allocator, res2, "CallableCustomGetUserData", "CallableCustomGetUserdata");
             defer allocator.free(res);
 
-            const snake_case = toSnakeCase(res, &temp);
+            const fn_name = fp_map.get(decl.name).?;
+
             res[0] = std.ascii.toLower(res[0]);
             try code_builder.printLine(0, "pub var {s}:std.meta.Child(Godot.{s}) = undefined;", .{ res, decl.name });
-            try loader_builder.printLine(1, "{s} = @ptrCast(getProcAddress(\"{s}\"));", .{ res, snake_case });
+            try loader_builder.printLine(1, "{s} = @ptrCast(getProcAddress(\"{s}\"));", .{ res, fn_name });
         }
     }
 
@@ -1073,12 +1129,13 @@ pub fn main() !void {
 
     const args = try std.process.argsAlloc(allocator);
 
-    if (args.len < 4) {
-        std.debug.print("Usage: binding_generator export_path generated_path precision arch\n", .{});
+    if (args.len < 5) {
+        std.debug.print("Usage: binding_generator export_path generated_path precision arch verbose\n", .{});
         return;
     }
 
     outpath = args[2];
+    mode = std.meta.stringToEnum(Mode, args[5]) orelse mode;
 
     class_size_map = StringSizeMap.init(allocator);
     engine_class_map = StringBoolMap.init(allocator);
@@ -1091,9 +1148,10 @@ pub fn main() !void {
 
     cwd = std.fs.cwd();
 
-    const fname = try std.fs.path.resolve(allocator, &.{ args[1], "extension_api.json" });
+    const gdextension_h_path = try std.fs.path.resolve(allocator, &.{ args[1], "gdextension_interface.h" });
+    const extension_api_json_path = try std.fs.path.resolve(allocator, &.{ args[1], "extension_api.json" });
 
-    const contents = try cwd.readFileAlloc(allocator, fname, 10 * 1024 * 1024); //"./src/api/extension_api.json", 10 * 1024 * 1024);
+    const contents = try cwd.readFileAlloc(allocator, extension_api_json_path, 10 * 1024 * 1024); //"./src/api/extension_api.json", 10 * 1024 * 1024);
 
     const api = try std.json.parseFromSlice(GdExtensionApi, allocator, contents, .{ .ignore_unknown_fields = false });
 
@@ -1103,13 +1161,19 @@ pub fn main() !void {
     const conf = try temp_buf.bufPrint("{s}_{s}", .{ args[3], args[4] });
     try parseClassSizes(api, conf);
     try parseSingletons(api);
+    const fp_map = try parseFunctionPointers(allocator, gdextension_h_path);
+
     try generateGlobalEnums(api, allocator);
     try generateUtilityFunctions(api, allocator);
     try generateClasses(api, allocator, true);
     try generateClasses(api, allocator, false);
-
-    try generateGodotCore(allocator);
+    try generateGodotCore(allocator, &fp_map);
 
     // Disabled this log because it is causing issues with the zig build system
     //std.log.info("zig bindings with configuration {s} for {s} have been successfully generated, have fun!", .{ conf, api.value.header.version_full_name });
+
+    if (mode == .verbose) {
+        std.debug.print("Output path: {s}\n", .{outpath});
+        std.debug.print("API JSON: {s}\n", .{extension_api_json_path});
+    }
 }
