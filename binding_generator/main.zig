@@ -1034,9 +1034,7 @@ fn generateGodotCore(allocator: std.mem.Allocator, fp_map: *const std.StringHash
     try code_builder.writeLine(0, "const std = @import(\"std\");");
     try code_builder.writeLine(0, "const Godot = @import(\"godot\");");
     try code_builder.writeLine(0, "pub const UtilityFunctions = @import(\"UtilityFunctions.zig\");");
-    try code_builder.writeLine(0, "pub const C = @cImport({");
-    try code_builder.writeLine(1, "@cInclude(\"gdextension_interface.h\");");
-    try code_builder.writeLine(0, "});");
+    try code_builder.writeLine(0, "pub const C = @import(\"gdextension\");");
 
     for (all_classes.items) |cls| {
         if (mem.eql(u8, cls, "GlobalEnums")) {

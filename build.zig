@@ -68,7 +68,6 @@ pub fn build(b: *std.Build) !void {
     });
     godot_module.addOptions("build_options", build_options);
     godot_module.addIncludePath(bindgen.output_path);
-    godot_module.addIncludePath(gdextension.iface_headers.dirname());
 
     const lib_vector = b.dependency("vector_z", .{
         .precision = precision,
@@ -80,8 +79,8 @@ pub fn build(b: *std.Build) !void {
         .target = target,
         .optimize = optimize,
     });
-    godot_core_module.addIncludePath(gdextension.iface_headers.dirname());
     godot_core_module.addImport("godot", godot_module);
+    godot_core_module.addImport("gdextension", gdextension_mod);
 
     godot_module.addImport("GodotCore", godot_core_module);
 
