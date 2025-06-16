@@ -94,6 +94,7 @@ fn build_bindgen(
 ) BindgenOutput {
     const bind_step = b.step("bindgen", "Generate godot bindings");
     const run_binding_generator = std.Build.Step.Run.create(b, "run_binding_generator");
+    run_binding_generator.step.dependOn(&binding_generator.step);
 
     const output_path = makeTempPathRelative(b) catch unreachable;
     defer b.allocator.free(output_path);
@@ -181,20 +182,24 @@ fn buildGdExtension(
             extension_api_json.addStepDependencies(dump_step);
         },
         .generated => {
-            const tmpdir = b.makeTempPath();
+            const write_files = b.addWriteFiles();
+            const tmpdir = write_files.getDirectory();
+
             const dump_cmd = b.addSystemCommand(&.{
-                godot_path, "--dump-extension-api", "--dump-gdextension-interface", "--headless",
+                godot_path,
+                "--dump-extension-api",
+                "--dump-gdextension-interface",
+                "--headless",
             });
-            dump_cmd.setCwd(.{ .cwd_relative = tmpdir });
-            const output_dir = b.addInstallDirectory(.{
-                .source_dir = .{ .cwd_relative = tmpdir },
-                .install_dir = .prefix,
-                .install_subdir = BINDGEN_INSTALL_RELPATH,
-            });
-            output_dir.step.dependOn(&dump_cmd.step);
-            dump_step.dependOn(&output_dir.step);
-            iface_headers = output_dir.options.source_dir.path(b, "gdextension_interface.h");
-            api_json = output_dir.options.source_dir.path(b, "extension_api.json");
+            dump_cmd.setCwd(tmpdir);
+
+            _ = dump_cmd.captureStdOut();
+            _ = dump_cmd.captureStdErr();
+
+            iface_headers = tmpdir.path(b, "gdextension_interface.h");
+            api_json = tmpdir.path(b, "extension_api.json");
+
+            dump_step.dependOn(&dump_cmd.step);
         },
         .vendored => {
             const vendor_path = b.path("vendor");
