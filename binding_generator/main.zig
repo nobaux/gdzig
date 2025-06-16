@@ -1,5 +1,7 @@
 const std = @import("std");
-const C = @import("gdextension");
+const C = @cImport({
+    @cInclude("gdextension_interface.h");
+});
 const case = @import("case");
 
 const Allocator = std.mem.Allocator;
