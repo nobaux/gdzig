@@ -12,7 +12,7 @@
             .hash = "N-V-__8AAJvIeABgT5UIxF6GOJediw0qZYqfwvrgwovjmevl",
         },
         .vector_z = .{
-            .url = "git+https://github.com/doubleword-labs/vector-z.git#ea394f2fb02814fbc8d2aa6b2b3209969cd6963f",
+            .url = "git+https://github.com/doubleword-labs/vector-z.git#49ca3fbad6e732a1fb7f3699baaa637826beabec",
             .hash = "vector_z-0.0.0-M8WAeZspAADGRn6hygmQ5U1ess9RlHpSwyLUerk3lT2M",
         },
     },
