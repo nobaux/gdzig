@@ -1,12 +1,19 @@
 const std = @import("std");
 pub const Variant = @import("Variant.zig");
-pub usingnamespace @import("vector");
 const Core = @import("GodotCore"); //.GodotCore;
 const StringName = Core.StringName;
 const String = Core.String;
 pub usingnamespace Core;
 pub usingnamespace Core.C;
 pub var general_allocator: std.mem.Allocator = undefined;
+
+const Vector = @import("vector");
+pub const Vector2 = Vector.Vector2;
+pub const Vector2i = Vector.Vector2i;
+pub const Vector3 = Vector.Vector3;
+pub const Vector3i = Vector.Vector3i;
+pub const Vector4 = Vector.Vector4;
+pub const Vector4i = Vector.Vector4i;
 
 const builtin = @import("builtin");
 
