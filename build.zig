@@ -70,6 +70,11 @@ pub fn build(b: *std.Build) !void {
     godot_module.addIncludePath(bindgen.output_path);
     godot_module.addIncludePath(gdextension.iface_headers.dirname());
 
+    const lib_vector = b.dependency("vector_z", .{
+        .precision = precision,
+    });
+    godot_module.addImport("vector", lib_vector.module("vector_z"));
+
     const godot_core_module = b.addModule("GodotCore", .{
         .root_source_file = bindgen.godot_core_path,
         .target = target,
