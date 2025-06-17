@@ -59,7 +59,7 @@ pub fn build(b: *std.Build) !void {
     const lib_case = b.dependency("case", .{});
     binding_generator.root_module.addImport("case", lib_case.module("case"));
 
-    const bindgen = build_bindgen(b, gdextension.iface_headers.dirname(), binding_generator, precision, arch);
+    const bindgen = buildBindgen(b, gdextension.iface_headers.dirname(), binding_generator, precision, arch);
 
     const bindgen_fmt = b.addSystemCommand(&.{
         "zig",
@@ -69,7 +69,7 @@ pub fn build(b: *std.Build) !void {
     _ = bindgen_fmt.captureStdOut();
 
     const godot_module = b.addModule("godot", .{
-        .root_source_file = b.path("src/api/Godot.zig"),
+        .root_source_file = b.path("src/lib.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) !void {
     });
     godot_module.addImport("vector", lib_vector.module("vector_z"));
 
-    const godot_core_module = b.addModule("GodotCore", .{
+    const godot_core_module = b.addModule("godot_core", .{
         .root_source_file = bindgen.godot_core_path,
         .target = target,
         .optimize = optimize,
@@ -89,7 +89,7 @@ pub fn build(b: *std.Build) !void {
     godot_core_module.addImport("godot", godot_module);
     godot_core_module.addImport("gdextension", gdextension_mod);
 
-    godot_module.addImport("GodotCore", godot_core_module);
+    godot_module.addImport("godot_core", godot_core_module);
 
     const lib = b.addSharedLibrary(.{
         .name = "godot",
@@ -107,7 +107,7 @@ const BindgenOutput = struct {
 };
 
 /// Build the zig bindings using the binding_generator program,
-fn build_bindgen(
+fn buildBindgen(
     b: *std.Build,
     godot_headers_path: std.Build.LazyPath,
     binding_generator: *std.Build.Step.Compile,
@@ -136,7 +136,7 @@ fn build_bindgen(
     return .{
         .step = bind_step,
         .output_path = output_lazypath,
-        .godot_core_path = output_lazypath.path(b, "GodotCore.zig"),
+        .godot_core_path = output_lazypath.path(b, "core.zig"),
     };
 }
 
