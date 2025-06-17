@@ -61,8 +61,15 @@ pub fn build(b: *std.Build) !void {
 
     const bindgen = build_bindgen(b, gdextension.iface_headers.dirname(), binding_generator, precision, arch);
 
+    const bindgen_fmt = b.addSystemCommand(&.{
+        "zig",
+        "fmt",
+    });
+    bindgen_fmt.addDirectoryArg(bindgen.output_path);
+    _ = bindgen_fmt.captureStdOut();
+
     const godot_module = b.addModule("godot", .{
-        .root_source_file = b.path(b.pathJoin(&.{ "src", "api", "Godot.zig" })),
+        .root_source_file = b.path("src/api/Godot.zig"),
         .target = target,
         .optimize = optimize,
     });
@@ -88,6 +95,7 @@ pub fn build(b: *std.Build) !void {
         .name = "godot",
         .root_module = godot_module,
     });
+    lib.step.dependOn(&bindgen_fmt.step);
 
     b.installArtifact(lib);
 }
