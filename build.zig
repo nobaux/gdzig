@@ -69,7 +69,7 @@ pub fn build(b: *std.Build) !void {
     _ = bindgen_fmt.captureStdOut();
 
     const godot_module = b.addModule("godot", .{
-        .root_source_file = b.path("src/lib.zig"),
+        .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
     });

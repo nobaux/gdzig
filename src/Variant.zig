@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const godot = @import("lib.zig");
+const godot = @import("root.zig");
 
 const Variant = @This();
 
