@@ -22,7 +22,7 @@
         "LICENSE",
         "README.md",
         "binding_generator",
-        "src/api",
+        "src",
         "build.zig",
         "build.zig.zon",
         "vendor",
