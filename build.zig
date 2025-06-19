@@ -3,6 +3,33 @@ const path = std.fs.path;
 
 const BINDGEN_INSTALL_RELPATH = "bindgen";
 
+const DependencyModules = struct {
+    modules: std.StringHashMap(*std.Build.Module),
+    godot_cpp_dep: *std.Build.Dependency,
+};
+
+fn getDependencyModules(b: *std.Build, precision: []const u8) DependencyModules {
+    var modules = std.StringHashMap(*std.Build.Module).init(b.allocator);
+
+    const lib_case = b.dependency("case", .{});
+    modules.put("case", lib_case.module("case")) catch @panic("Failed to add case module");
+
+    const lib_vector = b.dependency("vector_z", .{
+        .precision = precision,
+    });
+    modules.put("vector_z", lib_vector.module("vector_z")) catch @panic("Failed to add vector_z module");
+
+    const godot_cpp = b.dependency("godot_cpp", .{});
+
+    const mvzr = b.dependency("mvzr", .{});
+    modules.put("mvzr", mvzr.module("mvzr")) catch @panic("Failed to add mvzr module");
+
+    return DependencyModules{
+        .modules = modules,
+        .godot_cpp_dep = godot_cpp,
+    };
+}
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -16,6 +43,7 @@ pub fn build(b: *std.Build) !void {
     );
 
     const headers_source = parseHeadersOption(b, headers);
+    const dep_modules = getDependencyModules(b, precision);
 
     const build_options = b.addOptions();
     build_options.addOption([]const u8, "precision", precision);
@@ -26,7 +54,7 @@ pub fn build(b: *std.Build) !void {
         .custom => headers.?,
     });
 
-    const gdextension = buildGdExtension(b, godot_path, headers_source);
+    const gdextension = buildGdExtension(b, godot_path, headers_source, dep_modules.godot_cpp_dep);
 
     const gdextension_c = b.addTranslateC(.{
         .link_libc = true,
@@ -56,8 +84,8 @@ pub fn build(b: *std.Build) !void {
     const binding_generator_step = b.step("binding_generator", "Build the binding_generator program");
     binding_generator_step.dependOn(&binding_generator.step);
 
-    const lib_case = b.dependency("case", .{});
-    binding_generator.root_module.addImport("case", lib_case.module("case"));
+    binding_generator.root_module.addImport("case", dep_modules.modules.get("case").?);
+    binding_generator.root_module.addImport("mvzr", dep_modules.modules.get("mvzr").?);
 
     const bindgen = buildBindgen(b, gdextension.iface_headers.dirname(), binding_generator, precision, arch);
 
@@ -76,10 +104,7 @@ pub fn build(b: *std.Build) !void {
     godot_module.addOptions("build_options", build_options);
     godot_module.addIncludePath(bindgen.output_path);
 
-    const lib_vector = b.dependency("vector_z", .{
-        .precision = precision,
-    });
-    godot_module.addImport("vector", lib_vector.module("vector_z"));
+    godot_module.addImport("vector", dep_modules.modules.get("vector_z").?);
 
     const godot_core_module = b.addModule("godot_core", .{
         .root_source_file = bindgen.godot_core_path,
@@ -187,6 +212,7 @@ fn buildGdExtension(
     b: *std.Build,
     godot_path: []const u8,
     headers_source: HeadersSource,
+    godot_cpp_dep: *std.Build.Dependency,
 ) GDExtensionOutput {
     const dump_step = b.step("dump", "dump godot headers");
     var iface_headers: std.Build.LazyPath = undefined;
@@ -194,9 +220,8 @@ fn buildGdExtension(
 
     switch (headers_source) {
         .dependency => {
-            const godot_cpp = b.dependency("godot_cpp", .{});
-            const gdextension_interface_h = godot_cpp.builder.path("gdextension/gdextension_interface.h");
-            const extension_api_json = godot_cpp.builder.path("gdextension/extension_api.json");
+            const gdextension_interface_h = godot_cpp_dep.builder.path("gdextension/gdextension_interface.h");
+            const extension_api_json = godot_cpp_dep.builder.path("gdextension/extension_api.json");
             iface_headers = gdextension_interface_h;
             api_json = extension_api_json;
 
