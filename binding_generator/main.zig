@@ -1,21 +1,19 @@
 const std = @import("std");
 const C = @import("gdextension");
 const case = @import("case");
+const mzvr = @import("mvzr");
+const packed_array = @import("packed_array.zig");
+const enums = @import("enums.zig");
 
 const Allocator = std.mem.Allocator;
 const GdExtensionApi = @import("extension_api.zig");
 const StreamBuilder = @import("stream_builder.zig").StreamBuilder;
 const mem = std.mem;
 const string = []const u8;
-
-const ProcType = enum { UtilityFunction, BuiltinClassMethod, EngineClassMethod, Constructor, Destructor };
+const Mode = enums.Mode;
+const ProcType = enums.ProcType;
 
 var outpath: []const u8 = undefined;
-
-const Mode = enum {
-    quiet,
-    verbose,
-};
 
 var mode: Mode = .quiet;
 
@@ -902,12 +900,17 @@ fn generateUtilityFunctions(api: GdExtensionApi, allocator: std.mem.Allocator) !
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
 }
 
-fn generateClasses(api: GdExtensionApi, allocator: std.mem.Allocator, comptime is_builtin_class: bool) !void {
-    const class_defs = if (is_builtin_class) api.builtin_classes else api.classes;
+const ClassType = enum {
+    class,
+    builtinClass,
+};
+
+fn generateClasses(api: GdExtensionApi, allocator: std.mem.Allocator, comptime of_type: ClassType) !void {
+    const class_defs = if (of_type == .builtinClass) api.builtin_classes else api.classes;
     var code_builder = try StreamBuilder(u8, 1024 * 1024).init(allocator);
     defer code_builder.deinit();
 
-    if (!is_builtin_class) {
+    if (of_type != .builtinClass) {
         try parseEngineClasses(api);
     }
 
@@ -926,22 +929,27 @@ fn generateClasses(api: GdExtensionApi, allocator: std.mem.Allocator, comptime i
 
         const class_name = bc.name;
         try all_classes.append(class_name);
-        if (!is_builtin_class) {
+        if (of_type != .builtinClass) {
             try all_engine_classes.append(class_name);
+        }
+
+        if (packed_array.regex.isMatch(bc.name) and of_type == .builtinClass) {
+            // TODO: generate packed array struct
+            try packed_array.generate(bc, mode, code_builder);
         }
 
         code_builder.reset();
         depends.clearRetainingCapacity();
         try code_builder.printLine(0, "pub const {s} = extern struct {{", .{class_name});
 
-        if (is_builtin_class) {
+        if (of_type == .builtinClass) {
             try code_builder.printLine(0, "value:[{d}]u8,", .{class_size_map.get(class_name).?});
         } else {
             try code_builder.writeLine(0, "godot_object: ?*anyopaque,\n");
         }
         try code_builder.writeLine(0, "pub const Self = @This();");
 
-        if (!is_builtin_class) {
+        if (of_type != .builtinClass) {
             if (bc.inherits.len > 0) {
                 try code_builder.printLine(0, "pub usingnamespace godot.{s};", .{bc.inherits});
             }
@@ -957,7 +965,7 @@ fn generateClasses(api: GdExtensionApi, allocator: std.mem.Allocator, comptime i
         }
         if (bc.constants) |cs| {
             for (cs) |c| {
-                if (is_builtin_class) {
+                if (of_type == .builtinClass) {
                     //todo:parse value string
                     //try code_builder.printLine(0, "pub const {s}:{s} = {s};", .{ c.name, correctType(c.type, ""), c.value });
                 } else {
@@ -985,7 +993,7 @@ fn generateClasses(api: GdExtensionApi, allocator: std.mem.Allocator, comptime i
 
         if (hasAnyMethod(bc)) {
             try generateConstructor(bc, code_builder, allocator);
-            try generateMethod(bc, code_builder, allocator, is_builtin_class, &generated_method_map);
+            try generateMethod(bc, code_builder, allocator, of_type == .builtinClass, &generated_method_map);
         }
 
         if (false) {
@@ -1163,8 +1171,8 @@ pub fn main() !void {
 
     try generateGlobalEnums(gdapi, allocator);
     try generateUtilityFunctions(gdapi, allocator);
-    try generateClasses(gdapi, allocator, true);
-    try generateClasses(gdapi, allocator, false);
+    try generateClasses(gdapi, allocator, .builtinClass);
+    try generateClasses(gdapi, allocator, .class);
     try generateGodotCore(allocator, &fp_map);
 
     // Disabled this log because it is causing issues with the zig build system
