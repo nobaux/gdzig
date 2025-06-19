@@ -134,8 +134,8 @@ pub fn toSnakeCase(in: []const u8, buf: []u8) []const u8 {
     return case.bufTo(buf, .snake, in) catch @panic("toSnakeCase failed");
 }
 
-fn parseClassSizes(api: anytype, conf_name: string) !void {
-    for (api.value.builtin_class_sizes) |bcs| {
+fn parseClassSizes(api: GdExtensionApi, conf_name: string) !void {
+    for (api.builtin_class_sizes) |bcs| {
         if (!std.mem.eql(u8, bcs.build_configuration, conf_name)) {
             continue;
         }
@@ -146,8 +146,8 @@ fn parseClassSizes(api: anytype, conf_name: string) !void {
     }
 }
 
-fn parseSingletons(api: anytype) !void {
-    for (api.value.singletons) |sg| {
+fn parseSingletons(api: GdExtensionApi) !void {
+    for (api.singletons) |sg| {
         try singletons_map.put(sg.name, sg.type);
     }
 }
@@ -334,11 +334,11 @@ fn correctName(name: string) string {
     return name;
 }
 
-fn generateGlobalEnums(api: anytype, allocator: std.mem.Allocator) !void {
+fn generateGlobalEnums(api: GdExtensionApi, allocator: std.mem.Allocator) !void {
     var code_builder = try StreamBuilder(u8, 100 * 1024).init(allocator);
     defer code_builder.deinit();
 
-    for (api.value.global_enums) |ge| {
+    for (api.global_enums) |ge| {
         if (std.mem.startsWith(u8, ge.name, "Variant.")) continue;
 
         try code_builder.printLine(0, "pub const {s} = i64;", .{ge.name});
@@ -353,8 +353,9 @@ fn generateGlobalEnums(api: anytype, allocator: std.mem.Allocator) !void {
     try cwd.writeFile(.{ .sub_path = file_name, .data = code_builder.getWritten() });
 }
 
-fn parseEngineClasses(api: anytype) !void {
-    for (api.value.classes) |bc| {
+fn parseEngineClasses(api: GdExtensionApi) !void {
+    for (api.classes) |bc| {
+        // TODO: why?
         if (mem.eql(u8, bc.name, "ClassDB")) {
             continue;
         }
@@ -362,7 +363,7 @@ fn parseEngineClasses(api: anytype) !void {
         try engine_class_map.put(bc.name, bc.is_refcounted);
     }
 
-    for (api.value.native_structures) |ns| {
+    for (api.native_structures) |ns| {
         try engine_class_map.put(ns.name, false);
     }
 }
@@ -883,12 +884,12 @@ fn addImports(class_name: []const u8, code_builder: anytype, allocator: std.mem.
     return allocator.dupe(u8, imp_builder.getWritten());
 }
 
-fn generateUtilityFunctions(api: anytype, allocator: std.mem.Allocator) !void {
+fn generateUtilityFunctions(api: GdExtensionApi, allocator: std.mem.Allocator) !void {
     var code_builder = try StreamBuilder(u8, 1024 * 1024).init(allocator);
     defer code_builder.deinit();
     depends.clearRetainingCapacity();
 
-    for (api.value.utility_functions) |f| {
+    for (api.utility_functions) |f| {
         const return_type = correctType(f.return_type, "");
         try generateProc(code_builder, f, allocator, "", f.name, return_type, .UtilityFunction);
     }
@@ -901,8 +902,8 @@ fn generateUtilityFunctions(api: anytype, allocator: std.mem.Allocator) !void {
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
 }
 
-fn generateClasses(api: anytype, allocator: std.mem.Allocator, comptime is_builtin_class: bool) !void {
-    const class_defs = if (is_builtin_class) api.value.builtin_classes else api.value.classes;
+fn generateClasses(api: GdExtensionApi, allocator: std.mem.Allocator, comptime is_builtin_class: bool) !void {
+    const class_defs = if (is_builtin_class) api.builtin_classes else api.classes;
     var code_builder = try StreamBuilder(u8, 1024 * 1024).init(allocator);
     defer code_builder.deinit();
 
@@ -1150,19 +1151,20 @@ pub fn main() !void {
     const contents = try cwd.readFileAlloc(allocator, extension_api_json_path, 10 * 1024 * 1024); //"./src/api/extension_api.json", 10 * 1024 * 1024);
 
     const api = try std.json.parseFromSlice(GdExtensionApi, allocator, contents, .{ .ignore_unknown_fields = false });
+    const gdapi = api.value;
 
     try cwd.deleteTree(outpath);
     try cwd.makePath(outpath);
 
     const conf = try temp_buf.bufPrint("{s}_{s}", .{ args[3], args[4] });
-    try parseClassSizes(api, conf);
-    try parseSingletons(api);
+    try parseClassSizes(gdapi, conf);
+    try parseSingletons(gdapi);
     const fp_map = try parseFunctionPointers(allocator, gdextension_h_path);
 
-    try generateGlobalEnums(api, allocator);
-    try generateUtilityFunctions(api, allocator);
-    try generateClasses(api, allocator, true);
-    try generateClasses(api, allocator, false);
+    try generateGlobalEnums(gdapi, allocator);
+    try generateUtilityFunctions(gdapi, allocator);
+    try generateClasses(gdapi, allocator, true);
+    try generateClasses(gdapi, allocator, false);
     try generateGodotCore(allocator, &fp_map);
 
     // Disabled this log because it is causing issues with the zig build system
