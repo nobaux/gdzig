@@ -143,14 +143,11 @@ fn buildBindgen(
     const run_binding_generator = std.Build.Step.Run.create(b, "run_binding_generator");
     run_binding_generator.step.dependOn(&binding_generator.step);
 
-    const output_path = makeTempPathRelative(b) catch unreachable;
-    defer b.allocator.free(output_path);
-
     const mode = if (b.verbose) "verbose" else "quiet";
 
     run_binding_generator.addArtifactArg(binding_generator);
     run_binding_generator.addDirectoryArg(godot_headers_path);
-    const output_lazypath = run_binding_generator.addOutputDirectoryArg(output_path);
+    const output_lazypath = run_binding_generator.addOutputDirectoryArg("bindgen_cache");
     run_binding_generator.addArgs(&.{ precision, arch, mode });
     const install_bindgen = b.addInstallDirectory(.{
         .source_dir = output_lazypath,
@@ -280,8 +277,4 @@ fn buildGdExtension(
         .api_json = api_json,
         .iface_headers = iface_headers,
     };
-}
-
-fn makeTempPathRelative(b: *std.Build) ![]const u8 {
-    return try path.relative(b.allocator, b.build_root.path.?, b.makeTempPath());
 }
