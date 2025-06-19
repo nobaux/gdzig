@@ -6,7 +6,7 @@ const enums = @import("enums.zig");
 
 const Mode = enums.Mode;
 
-pub const regex = mzvr.compile("^Packed([a-z]|[A-Z]|[0-9])+Array$") orelse @compileError("Failed to compile regex");
+pub const regex = mzvr.compile("^Packed([a-zA-Z0-9])+Array$") orelse @compileError("Failed to compile regex");
 
 pub fn generate(class: GdExtensionApi.BuiltinClass, mode: Mode, code_builder: *StreamBuilder) !void {
     _ = code_builder;
