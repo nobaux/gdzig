@@ -1,22 +1,13 @@
 const std = @import("std");
-const case = @import("case");
-const mzvr = @import("mvzr");
-const packed_array = @import("packed_array.zig");
 const enums = @import("enums.zig");
-const types = @import("types.zig");
 const codegen = @import("codegen.zig");
 
-const Allocator = std.mem.Allocator;
 const GdExtensionApi = @import("extension_api.zig");
 const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
-const mem = std.mem;
-const string = []const u8;
 const Mode = enums.Mode;
-const ProcType = enums.ProcType;
 
 var outpath: []const u8 = undefined;
 var mode: Mode = .quiet;
-var temp_buf: *StreamBuilder = undefined;
 var cwd: std.fs.Dir = undefined;
 
 pub fn main() !void {
@@ -37,9 +28,6 @@ pub fn main() !void {
 
     cwd = std.fs.cwd();
 
-    temp_buf = try StreamBuilder.init(allocator);
-    defer temp_buf.deinit();
-
     const gdextension_h_path = try std.fs.path.resolve(allocator, &.{ args[1], "gdextension_interface.h" });
     const extension_api_json_path = try std.fs.path.resolve(allocator, &.{ args[1], "extension_api.json" });
 
@@ -51,6 +39,8 @@ pub fn main() !void {
     try cwd.deleteTree(outpath);
     try cwd.makePath(outpath);
 
+    var temp_buf = try StreamBuilder.init(allocator);
+    defer temp_buf.deinit();
     const conf = try temp_buf.bufPrint("{s}_{s}", .{ args[3], args[4] });
 
     try codegen.generate(allocator, gdapi, .{
