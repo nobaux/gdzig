@@ -905,6 +905,200 @@ const ClassType = enum {
     builtinClass,
 };
 
+fn shouldSkipClass(class_name: []const u8) bool {
+    return std.mem.eql(u8, class_name, "bool") or
+        std.mem.eql(u8, class_name, "Nil") or
+        std.mem.eql(u8, class_name, "int") or
+        std.mem.eql(u8, class_name, "float") or
+        native_type_map.has(class_name);
+}
+
+fn generateBuiltinEnums(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    if (bc.enums) |es| {
+        for (es) |e| {
+            try code_builder.printLine(0, "pub const {s} = c_int;", .{e.name});
+            for (e.values) |v| {
+                try code_builder.printLine(0, "pub const {s}:c_int = {d};", .{ v.name, v.value });
+            }
+        }
+    }
+}
+
+fn generateEngineEnums(bc: GdExtensionApi.Class, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    if (bc.enums) |es| {
+        for (es) |e| {
+            try code_builder.printLine(0, "pub const {s} = c_int;", .{e.name});
+            for (e.values) |v| {
+                try code_builder.printLine(0, "pub const {s}:c_int = {d};", .{ v.name, v.value });
+            }
+        }
+    }
+}
+
+fn generateBuiltinConstants(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    _ = code_builder; // TODO: implement builtin constants generation
+    if (bc.constants) |cs| {
+        for (cs) |c| {
+            _ = c; // TODO: parse value string
+            //try code_builder.printLine(0, "pub const {s}:{s} = {s};", .{ c.name, correctType(c.type, ""), c.value });
+        }
+    }
+}
+
+fn generateEngineConstants(bc: GdExtensionApi.Class, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    if (bc.constants) |cs| {
+        for (cs) |c| {
+            try code_builder.printLine(0, "pub const {s}:c_int = {d};", .{ c.name, c.value });
+        }
+    }
+}
+
+fn generateSingletonMethods(class_name: []const u8, code_builder: *StreamBuilder(u8, 1024 * 1024), generated_method_map: *StringVoidMap) !void {
+    if (isSingleton(class_name)) {
+        const singleton_code =
+            \\var instance: ?{0s} = null;
+            \\pub fn getSingleton() {0s} {{
+            \\    if(instance == null ) {{
+            \\        const obj = godot.globalGetSingleton(@ptrCast(godot.getClassName({0s})));
+            \\        instance = .{{ .godot_object = obj }};
+            \\    }}
+            \\    return instance.?;
+            \\}}
+        ;
+        try code_builder.printLine(0, singleton_code, .{class_name});
+        try generated_method_map.putNoClobber("getSingleton", {});
+    }
+}
+
+fn initializeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    code_builder.reset();
+    depends.clearRetainingCapacity();
+    try code_builder.printLine(0, "pub const {s} = extern struct {{", .{class_name});
+}
+
+fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder(u8, 1024 * 1024), allocator: std.mem.Allocator) !void {
+    try code_builder.printLine(0, "}};", .{});
+
+    const code = try addImports(class_name, code_builder, allocator);
+    defer allocator.free(code);
+
+    const file_name = try std.mem.concat(allocator, u8, &.{ outpath, "/", class_name, ".zig" });
+    defer allocator.free(file_name);
+    try cwd.writeFile(.{ .sub_path = file_name, .data = code });
+}
+
+fn generateBuiltinClassMethods(bc: GdExtensionApi.BuiltinClass, class_name: []const u8, code_builder: *StreamBuilder(u8, 1024 * 1024), allocator: std.mem.Allocator) !void {
+    var generated_method_map = StringVoidMap.init(allocator);
+    try generateSingletonMethods(class_name, code_builder, &generated_method_map);
+
+    if (hasAnyMethod(bc)) {
+        try generateConstructor(bc, code_builder, allocator);
+        try generateMethod(bc, code_builder, allocator, true, &generated_method_map);
+    }
+}
+
+fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, code_builder: *StreamBuilder(u8, 1024 * 1024), allocator: std.mem.Allocator) !void {
+    var generated_method_map = StringVoidMap.init(allocator);
+    try generateSingletonMethods(class_name, code_builder, &generated_method_map);
+
+    if (hasAnyMethod(bc)) {
+        try generateConstructor(bc, code_builder, allocator);
+        try generateMethod(bc, code_builder, allocator, false, &generated_method_map);
+    }
+}
+
+fn generateBuiltinClass(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder(u8, 1024 * 1024), allocator: std.mem.Allocator) !void {
+    const class_name = bc.name;
+
+    if (shouldSkipClass(class_name)) {
+        return;
+    }
+
+    try all_classes.append(class_name);
+
+    try handlePackedArrayGeneration(bc, code_builder);
+    try initializeClassGeneration(class_name, code_builder);
+    try generateBuiltinClassField(class_name, code_builder);
+    try generateBuiltinEnums(bc, code_builder);
+    try generateBuiltinConstants(bc, code_builder);
+
+    try generateBuiltinClassMethods(bc, class_name, code_builder, allocator);
+
+    try finalizeClassGeneration(class_name, code_builder, allocator);
+}
+
+fn handlePackedArrayGeneration(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    if (packed_array.regex.isMatch(bc.name)) {
+        // TODO: generate packed array struct
+        try packed_array.generate(bc, mode, code_builder);
+    }
+}
+
+fn generateBuiltinClassField(class_name: []const u8, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    try code_builder.printLine(0, "value:[{d}]u8,", .{class_size_map.get(class_name).?});
+    try code_builder.writeLine(0, "pub const Self = @This();");
+}
+
+fn generateEngineClassField(bc: GdExtensionApi.Class, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    try code_builder.writeLine(0, "godot_object: ?*anyopaque,\n");
+    try code_builder.writeLine(0, "pub const Self = @This();");
+
+    // Handle inheritance
+    if (bc.inherits.len > 0) {
+        try code_builder.printLine(0, "pub usingnamespace godot.{s};", .{bc.inherits});
+    }
+}
+
+fn generateInstanceBindingCallbacks(class_name: []const u8, code_builder: *StreamBuilder(u8, 1024 * 1024)) !void {
+    const callbacks_code =
+        \\pub var callbacks_{0s} = godot.GDExtensionInstanceBindingCallbacks{{ .create_callback = instanceBindingCreateCallback, .free_callback = instanceBindingFreeCallback, .reference_callback = instanceBindingReferenceCallback }};
+        \\fn instanceBindingCreateCallback(p_token: ?*anyopaque, p_instance: ?*anyopaque) callconv(.C) ?*anyopaque {{
+        \\    _ = p_token;
+        \\    var self = @as(*{0s}, @ptrCast(@alignCast(godot.memAlloc(@sizeOf({0s})))));
+        \\    //var self = godot.general_allocator.create({0s}) catch unreachable;
+        \\    self.godot_object = @ptrCast(p_instance);
+        \\    return @ptrCast(self);
+        \\}}
+        \\fn instanceBindingFreeCallback(p_token: ?*anyopaque, p_instance: ?*anyopaque, p_binding: ?*anyopaque) callconv(.C) void {{
+        \\    //godot.general_allocator.destroy(@as(*{0s}, @ptrCast(@alignCast(p_binding.?))));
+        \\    godot.memFree(p_binding.?);
+        \\    _ = p_instance;
+        \\    _ = p_token;
+        \\}}
+        \\fn instanceBindingReferenceCallback(p_token: ?*anyopaque, p_binding: ?*anyopaque, p_reference: godot.GDExtensionBool) callconv(.C) godot.GDExtensionBool {{
+        \\    _ = p_reference;
+        \\    _ = p_binding;
+        \\    _ = p_token;
+        \\    return 1;
+        \\}}
+    ;
+    try code_builder.printLine(0, callbacks_code, .{class_name});
+}
+
+fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder(u8, 1024 * 1024), allocator: std.mem.Allocator) !void {
+    const class_name = bc.name;
+
+    if (shouldSkipClass(class_name)) {
+        return;
+    }
+
+    try all_classes.append(class_name);
+    try all_engine_classes.append(class_name);
+
+    try initializeClassGeneration(class_name, code_builder);
+    try generateEngineClassField(bc, code_builder);
+    try generateEngineEnums(bc, code_builder);
+    try generateEngineConstants(bc, code_builder);
+
+    try generateEngineClassMethods(bc, class_name, code_builder, allocator);
+
+    if (false) {
+        try generateInstanceBindingCallbacks(class_name, code_builder);
+    }
+
+    try finalizeClassGeneration(class_name, code_builder, allocator);
+}
+
 fn generateClasses(api: GdExtensionApi, allocator: std.mem.Allocator, comptime of_type: ClassType) !void {
     const class_defs = if (of_type == .builtinClass) api.builtin_classes else api.classes;
     var code_builder = try StreamBuilder(u8, 1024 * 1024).init(allocator);
@@ -915,121 +1109,11 @@ fn generateClasses(api: GdExtensionApi, allocator: std.mem.Allocator, comptime o
     }
 
     for (class_defs) |bc| {
-        if (std.mem.eql(u8, bc.name, "bool") or
-            std.mem.eql(u8, bc.name, "Nil") or
-            std.mem.eql(u8, bc.name, "int") or
-            std.mem.eql(u8, bc.name, "float"))
-        {
-            continue;
-        }
-
-        if (native_type_map.has(bc.name)) {
-            continue;
-        }
-
-        const class_name = bc.name;
-        try all_classes.append(class_name);
-        if (of_type != .builtinClass) {
-            try all_engine_classes.append(class_name);
-        }
-
-        if (packed_array.regex.isMatch(bc.name) and of_type == .builtinClass) {
-            // TODO: generate packed array struct
-            try packed_array.generate(bc, mode, code_builder);
-        }
-
-        code_builder.reset();
-        depends.clearRetainingCapacity();
-        try code_builder.printLine(0, "pub const {s} = extern struct {{", .{class_name});
-
         if (of_type == .builtinClass) {
-            try code_builder.printLine(0, "value:[{d}]u8,", .{class_size_map.get(class_name).?});
+            try generateBuiltinClass(bc, code_builder, allocator);
         } else {
-            try code_builder.writeLine(0, "godot_object: ?*anyopaque,\n");
+            try generateClass(bc, code_builder, allocator);
         }
-        try code_builder.writeLine(0, "pub const Self = @This();");
-
-        if (of_type != .builtinClass) {
-            if (bc.inherits.len > 0) {
-                try code_builder.printLine(0, "pub usingnamespace godot.{s};", .{bc.inherits});
-            }
-        }
-
-        if (bc.enums) |es| {
-            for (es) |e| {
-                try code_builder.printLine(0, "pub const {s} = c_int;", .{e.name});
-                for (e.values) |v| {
-                    try code_builder.printLine(0, "pub const {s}:c_int = {d};", .{ v.name, v.value });
-                }
-            }
-        }
-        if (bc.constants) |cs| {
-            for (cs) |c| {
-                if (of_type == .builtinClass) {
-                    //todo:parse value string
-                    //try code_builder.printLine(0, "pub const {s}:{s} = {s};", .{ c.name, correctType(c.type, ""), c.value });
-                } else {
-                    try code_builder.printLine(0, "pub const {s}:c_int = {d};", .{ c.name, c.value });
-                }
-            }
-        }
-
-        var generated_method_map = StringVoidMap.init(allocator);
-
-        if (isSingleton(class_name)) {
-            const singleton_code =
-                \\var instance: ?{0s} = null;
-                \\pub fn getSingleton() {0s} {{
-                \\    if(instance == null ) {{
-                \\        const obj = godot.globalGetSingleton(@ptrCast(godot.getClassName({0s})));
-                \\        instance = .{{ .godot_object = obj }};
-                \\    }}
-                \\    return instance.?;
-                \\}}
-            ;
-            try code_builder.printLine(0, singleton_code, .{class_name});
-            try generated_method_map.putNoClobber("getSingleton", {});
-        }
-
-        if (hasAnyMethod(bc)) {
-            try generateConstructor(bc, code_builder, allocator);
-            try generateMethod(bc, code_builder, allocator, of_type == .builtinClass, &generated_method_map);
-        }
-
-        if (false) {
-            const callbacks_code =
-                \\pub var callbacks_{0s} = godot.GDExtensionInstanceBindingCallbacks{{ .create_callback = instanceBindingCreateCallback, .free_callback = instanceBindingFreeCallback, .reference_callback = instanceBindingReferenceCallback }};
-                \\fn instanceBindingCreateCallback(p_token: ?*anyopaque, p_instance: ?*anyopaque) callconv(.C) ?*anyopaque {{
-                \\    _ = p_token;
-                \\    var self = @as(*{0s}, @ptrCast(@alignCast(godot.memAlloc(@sizeOf({0s})))));
-                \\    //var self = godot.general_allocator.create({0s}) catch unreachable;
-                \\    self.godot_object = @ptrCast(p_instance);
-                \\    return @ptrCast(self);
-                \\}}
-                \\fn instanceBindingFreeCallback(p_token: ?*anyopaque, p_instance: ?*anyopaque, p_binding: ?*anyopaque) callconv(.C) void {{
-                \\    //godot.general_allocator.destroy(@as(*{0s}, @ptrCast(@alignCast(p_binding.?))));
-                \\    godot.memFree(p_binding.?);
-                \\    _ = p_instance;
-                \\    _ = p_token;
-                \\}}
-                \\fn instanceBindingReferenceCallback(p_token: ?*anyopaque, p_binding: ?*anyopaque, p_reference: godot.GDExtensionBool) callconv(.C) godot.GDExtensionBool {{
-                \\    _ = p_reference;
-                \\    _ = p_binding;
-                \\    _ = p_token;
-                \\    return 1;
-                \\}}
-            ;
-            try code_builder.printLine(0, callbacks_code, .{class_name});
-        }
-
-        try code_builder.printLine(0, "}};", .{});
-
-        const code = try addImports(class_name, code_builder, allocator);
-        defer allocator.free(code);
-
-        const file_name = try std.mem.concat(allocator, u8, &.{ outpath, "/", class_name, ".zig" });
-        defer allocator.free(file_name);
-        try cwd.writeFile(.{ .sub_path = file_name, .data = code });
     }
 }
 
