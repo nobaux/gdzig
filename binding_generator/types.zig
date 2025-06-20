@@ -22,6 +22,8 @@ pub const CodegenContext = struct {
     class_size_map: StringSizeMap,
     engine_class_map: StringBoolMap,
     singletons_map: StringStringMap,
+    func_pointers_map: StringStringMap,
+    func_docs_map: StringStringMap,
     all_classes: std.ArrayListUnmanaged([]const u8),
     all_engine_classes: std.ArrayListUnmanaged([]const u8),
     depends: std.ArrayListUnmanaged([]const u8),
@@ -33,6 +35,8 @@ pub const CodegenContext = struct {
             .class_size_map = .empty,
             .engine_class_map = .empty,
             .singletons_map = .empty,
+            .func_pointers_map = .empty,
+            .func_docs_map = .empty,
             .all_classes = .empty,
             .all_engine_classes = .empty,
             .depends = .empty,
@@ -44,6 +48,8 @@ pub const CodegenContext = struct {
         self.class_size_map.deinit(self.allocator);
         self.engine_class_map.deinit(self.allocator);
         self.singletons_map.deinit(self.allocator);
+        self.func_pointers_map.deinit(self.allocator);
+        self.func_docs_map.deinit(self.allocator);
         self.all_classes.deinit(self.allocator);
         self.all_engine_classes.deinit(self.allocator);
         self.depends.deinit(self.allocator);
@@ -92,6 +98,30 @@ pub const CodegenContext = struct {
 
     pub fn containsSingleton(self: *CodegenContext, key: []const u8) bool {
         return self.singletons_map.contains(key);
+    }
+
+    pub fn putFuncPointer(self: *CodegenContext, key: []const u8, value: []const u8) !void {
+        try self.func_pointers_map.put(self.allocator, key, value);
+    }
+
+    pub fn getFuncPointer(self: *CodegenContext, key: []const u8) ?[]const u8 {
+        return self.func_pointers_map.get(key);
+    }
+
+    pub fn containsFuncPointer(self: *CodegenContext, key: []const u8) bool {
+        return self.func_pointers_map.contains(key);
+    }
+
+    pub fn putFuncDoc(self: *CodegenContext, key: []const u8, value: []const u8) !void {
+        try self.func_docs_map.put(self.allocator, key, value);
+    }
+
+    pub fn getFuncDoc(self: *CodegenContext, key: []const u8) ?[]const u8 {
+        return self.func_docs_map.get(key);
+    }
+
+    pub fn containsFuncDoc(self: *CodegenContext, key: []const u8) bool {
+        return self.func_docs_map.contains(key);
     }
 
     // Array list wrapper methods

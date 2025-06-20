@@ -109,15 +109,15 @@ pub fn generate(allocator: Allocator, gdapi: GdExtensionApi, config: CodegenConf
     var ctx = try CodegenContext.init(allocator);
     defer ctx.deinit();
 
+    try parseGdExtensionHeaders(config, &ctx);
     try parseClassSizes(gdapi, config, &ctx);
     try parseSingletons(gdapi, config, &ctx);
-    const fp_map = try parseFunctionPointers(config, &ctx);
 
     try generateGlobalEnums(gdapi, config, &ctx);
     try generateUtilityFunctions(gdapi, config, &ctx);
     try generateClasses(gdapi, .builtinClass, config, &ctx);
     try generateClasses(gdapi, .class, config, &ctx);
-    try generateGodotCore(&fp_map, config, &ctx);
+    try generateGodotCore(config, &ctx);
 }
 
 pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: string, func_name: string, return_type_orig: string, comptime proc_type: ProcType, ctx: *CodegenContext) !void {
@@ -316,11 +316,8 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
             }
         },
         .Constructor => {
-            try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.GDExtensionPtrConstructor = null; };");
-            try code_builder.writeLine(1, "if( Binding.method == null ) {");
-            try code_builder.printLine(2, "Binding.method = godot.variantGetPtrConstructor({s}, {d});", .{ enum_type_name, fn_node.index });
-            try code_builder.writeLine(1, "}");
-            try code_builder.printLine(1, "Binding.method.?(@ptrCast(&result), {s});", .{arg_array});
+            try code_builder.printLine(2, "const method: godot.GDExtensionPtrConstructor = godot.variantGetPtrConstructor({s}, {d}) orelse @panic(\"Constructor not found\");", .{ enum_type_name, fn_node.index });
+            try code_builder.printLine(1, "method(@ptrCast(&result), {s});", .{arg_array});
         },
         .Destructor => {
             try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.GDExtensionPtrDestructor = null; };");
@@ -657,6 +654,7 @@ fn initializeClassGeneration(class_name: []const u8, code_builder: *StreamBuilde
     code_builder.reset();
     ctx.clearDependencies();
     try code_builder.printLine(0, "pub const {s} = struct {{", .{class_name});
+    try code_builder.writeLine(4, "pub const Self = @This();");
 }
 
 fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
@@ -703,32 +701,31 @@ fn generateBuiltinClass(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBu
 
     try ctx.appendClass(class_name);
 
-    try handlePackedArrayGeneration(bc, code_builder, config, ctx);
     try initializeClassGeneration(class_name, code_builder, ctx);
-    try generateBuiltinClassField(class_name, code_builder, ctx);
+
+    if (isPackedArray(bc)) {
+        try packed_array.generate(bc, code_builder, config, ctx);
+    } else {
+        try generateBuiltinClassField(class_name, code_builder, ctx);
+    }
+
     try generateBuiltinEnums(bc, code_builder);
     try generateBuiltinConstants(bc, code_builder);
-
     try generateBuiltinClassMethods(bc, class_name, code_builder, ctx);
 
     try finalizeClassGeneration(class_name, code_builder, config, ctx);
 }
 
-fn handlePackedArrayGeneration(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
-    if (packed_array.regex.isMatch(bc.name)) {
-        // TODO: generate packed array struct
-        try packed_array.generate(bc, code_builder, config, ctx);
-    }
+fn isPackedArray(bc: GdExtensionApi.BuiltinClass) bool {
+    return packed_array.regex.isMatch(bc.name);
 }
 
 fn generateBuiltinClassField(class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
     try code_builder.printLine(0, "value:[{d}]u8,", .{ctx.getClassSize(class_name).?});
-    try code_builder.writeLine(0, "pub const Self = @This();");
 }
 
 fn generateEngineClassField(bc: GdExtensionApi.Class, code_builder: *StreamBuilder) !void {
     try code_builder.writeLine(0, "godot_object: ?*anyopaque,\n");
-    try code_builder.writeLine(0, "pub const Self = @This();");
 
     // Handle inheritance
     if (bc.inherits.len > 0) {
@@ -804,7 +801,9 @@ fn generateClasses(api: GdExtensionApi, comptime of_type: ClassType, config: Cod
     }
 }
 
-fn generateGodotCore(fp_map: *const std.StringHashMapUnmanaged([]const u8), config: CodegenConfig, ctx: *CodegenContext) !void {
+fn generateGodotCore(config: CodegenConfig, ctx: *CodegenContext) !void {
+    const fp_map = ctx.func_pointers_map;
+
     var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
 
@@ -847,8 +846,10 @@ fn generateGodotCore(fp_map: *const std.StringHashMapUnmanaged([]const u8), conf
             defer ctx.allocator.free(res);
 
             const fn_name = fp_map.get(decl.name).?;
+            const fn_docs = ctx.func_docs_map.get(decl.name).?;
 
             res[0] = std.ascii.toLower(res[0]);
+            try code_builder.write(0, fn_docs);
             try code_builder.printLine(0, "pub var {s}:std.meta.Child(godot.{s}) = undefined;", .{ res, decl.name });
             try loader_builder.printLine(1, "{s} = @ptrCast(getProcAddress(\"{s}\"));", .{ res, fn_name });
         }
@@ -1045,6 +1046,7 @@ fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Codege
 
     try imp_builder.writeLine(0, "const godot = @import(\"godot\");");
     try imp_builder.writeLine(0, "const c = godot.c;");
+    try imp_builder.writeLine(0, "const vector = @import(\"vector\");");
 
     if (!std.mem.eql(u8, class_name, "String")) {
         try imp_builder.writeLine(0, "const String = godot.String;");
@@ -1157,12 +1159,10 @@ fn parseSingletons(api: GdExtensionApi, config: CodegenConfig, ctx: *CodegenCont
     }
 }
 
-fn parseFunctionPointers(config: CodegenConfig, ctx: *CodegenContext) !std.StringHashMapUnmanaged([]const u8) {
+fn parseGdExtensionHeaders(config: CodegenConfig, ctx: *CodegenContext) !void {
     const header_file = try std.fs.openFileAbsolute(config.gdextension_h_path, .{});
     var buffered_reader = std.io.bufferedReader(header_file.reader());
     const reader = buffered_reader.reader();
-
-    var fp_map = std.StringHashMapUnmanaged([]const u8){};
 
     const name_doc = "@name";
 
@@ -1171,10 +1171,56 @@ fn parseFunctionPointers(config: CodegenConfig, ctx: *CodegenContext) !std.Strin
     var fp_type: ?[]const u8 = null;
     const safe_ident_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
 
+    var doc_stream: std.ArrayListUnmanaged(u8) = .empty;
+    const doc_writer: std.ArrayListUnmanaged(u8).Writer = doc_stream.writer(ctx.allocator);
+
+    var doc_start: ?usize = null;
+    var doc_end: ?usize = null;
+    var doc_line_buf: [1024]u8 = undefined;
+    var doc_line_temp: [1024]u8 = undefined;
+
     while (true) {
         const line: []const u8 = reader.readUntilDelimiterOrEof(&buf, '\n') catch break orelse break;
 
-        if (std.mem.containsAtLeast(u8, line, 1, name_doc)) {
+        const contains_name_doc = std.mem.indexOf(u8, line, name_doc) != null;
+
+        // getting function docs
+        if (std.mem.indexOf(u8, line, "/*")) |i| if (i >= 0) {
+            doc_start = doc_stream.items.len;
+
+            if (line.len <= 3) {
+                continue;
+            }
+        };
+
+        // we are in a doc comment
+        if (doc_start != null) {
+            const is_last_line = std.mem.containsAtLeast(u8, line, 1, "*/");
+
+            if (line.len > 0) {
+                @memcpy(doc_line_buf[0 .. line.len - 2], line[2..]);
+                var doc_line = doc_line_buf[0 .. line.len - 2];
+
+                if (is_last_line) {
+                    // remove the trailing "*/"
+                    const len = std.mem.replace(u8, doc_line, "*/", "", &doc_line_temp);
+                    doc_line = doc_line_temp[0..len];
+                }
+
+                if (!contains_name_doc and !(is_last_line and doc_line.len == 0)) {
+                    try doc_writer.writeAll("/// ");
+                    try doc_writer.writeAll(try ctx.allocator.dupe(u8, doc_line));
+                    try doc_writer.writeAll("\n");
+                }
+
+                if (is_last_line) {
+                    doc_end = doc_stream.items.len;
+                }
+            }
+        }
+
+        // getting function pointers
+        if (contains_name_doc) {
             const name_index = std.mem.indexOf(u8, line, name_doc).?;
             const start = name_index + name_doc.len + 1; // +1 to skip the space after @name
             fn_name = try ctx.allocator.dupe(u8, line[start..]);
@@ -1197,14 +1243,19 @@ fn parseFunctionPointers(config: CodegenConfig, ctx: *CodegenContext) !std.Strin
         }
 
         if (fn_name) |_| if (fp_type) |_| {
-            try fp_map.putNoClobber(ctx.allocator, fp_type.?, fn_name.?);
+            try ctx.putFuncPointer(fp_type.?, fn_name.?);
+
+            if (doc_start) |start_index| if (doc_end) |end_index| {
+                const doc_text = try ctx.allocator.dupe(u8, doc_stream.items[start_index..end_index]);
+                try ctx.putFuncDoc(fp_type.?, doc_text);
+            };
 
             fn_name = null;
             fp_type = null;
+            doc_start = null;
+            doc_end = null;
         };
     }
-
-    return fp_map;
 }
 
 pub fn toSnakeCase(in: []const u8, buf: []u8) []const u8 {
