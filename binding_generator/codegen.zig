@@ -120,7 +120,7 @@ pub fn generate(allocator: Allocator, gdapi: GdExtensionApi, config: CodegenConf
     try generateGodotCore(&fp_map, config, &ctx);
 }
 
-fn generateProc(code_builder: anytype, fn_node: anytype, class_name: string, func_name: string, return_type_orig: string, comptime proc_type: ProcType, ctx: *CodegenContext) !void {
+pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: string, func_name: string, return_type_orig: string, comptime proc_type: ProcType, ctx: *CodegenContext) !void {
     const zig_func_name = getZigFuncName(func_name, ctx);
 
     const return_type: string = blk: {
@@ -159,14 +159,14 @@ fn generateProc(code_builder: anytype, fn_node: anytype, class_name: string, fun
     if (!is_static) {
         if (proc_type == .BuiltinClassMethod or proc_type == .Destructor) {
             if (is_const) {
-                _ = try code_builder.writer.write("self: Self");
+                _ = try code_builder.write(0, "self: Self");
             } else {
-                _ = try code_builder.writer.write("self: *Self");
+                _ = try code_builder.write(0, "self: *Self");
             }
 
             is_first_arg = false;
         } else if (proc_type == .EngineClassMethod) {
-            _ = try code_builder.writer.write("self: anytype");
+            _ = try code_builder.write(0, "self: anytype");
             is_first_arg = false;
         }
     }
@@ -184,16 +184,16 @@ fn generateProc(code_builder: anytype, fn_node: anytype, class_name: string, fun
                 // }
                 try addDependType(arg_type, ctx);
                 if (!is_first_arg) {
-                    _ = try code_builder.writer.write(", ");
+                    try code_builder.write(0, ", ");
                 }
                 is_first_arg = false;
                 if (isEngineClass(arg_type, ctx)) {
-                    try code_builder.writer.print("{s}: anytype", .{arg_name});
+                    try code_builder.print(0, "{s}: anytype", .{arg_name});
                 } else {
                     if ((proc_type != .Constructor or !isStringType(class_name)) and (isStringType(arg_type))) {
-                        try code_builder.writer.print("{s}: anytype", .{arg_name});
+                        try code_builder.print(0, "{s}: anytype", .{arg_name});
                     } else {
-                        try code_builder.writer.print("{s}: {s}", .{ arg_name, arg_type });
+                        try code_builder.print(0, "{s}: {s}", .{ arg_name, arg_type });
                     }
                 }
 
@@ -204,10 +204,10 @@ fn generateProc(code_builder: anytype, fn_node: anytype, class_name: string, fun
 
         if (is_vararg) {
             if (!is_first_arg) {
-                _ = try code_builder.writer.write(", ");
+                _ = try code_builder.write(0, ", ");
             }
             const arg_name = "varargs";
-            try code_builder.writer.print("{s}: anytype", .{arg_name});
+            try code_builder.print(0, "{s}: anytype", .{arg_name});
             try args.append(arg_name);
             try arg_types.append("anytype");
         }
@@ -337,7 +337,7 @@ fn generateProc(code_builder: anytype, fn_node: anytype, class_name: string, fun
     try code_builder.writeLine(0, "}");
 }
 
-fn generateConstructor(class_node: anytype, code_builder: anytype, ctx: *CodegenContext) !void {
+pub fn generateConstructor(class_node: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
     const class_name = correctName(class_node.name, ctx);
 
     const string_class_extra_constructors_code =
@@ -404,13 +404,13 @@ fn generateConstructor(class_node: anytype, code_builder: anytype, ctx: *Codegen
     }
 }
 
-fn generateMethod(class_node: anytype, code_builder: anytype, comptime is_builtin_class: bool, generated_method_map: *types.StringVoidMap, ctx: *CodegenContext) !void {
+pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, comptime is_builtin_class: bool, generated_method_map: *types.StringVoidMap, ctx: *CodegenContext) !void {
     const class_name = correctName(class_node.name, ctx);
     const enum_type_name = getVariantTypeName(class_name, ctx);
 
     const proc_type = if (is_builtin_class) ProcType.BuiltinClassMethod else ProcType.EngineClassMethod;
 
-    var vf_builder = try StreamBuilder.init(ctx.allocator);
+    var vf_builder = StreamBuilder.init(ctx.allocator);
     defer vf_builder.deinit();
 
     if (class_node.methods) |ms| {
@@ -558,7 +558,7 @@ fn generateMethod(class_node: anytype, code_builder: anytype, comptime is_builti
 }
 
 fn generateGlobalEnums(api: GdExtensionApi, config: CodegenConfig, ctx: *CodegenContext) !void {
-    var code_builder = try StreamBuilder.init(ctx.allocator);
+    var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
 
     for (api.global_enums) |ge| {
@@ -656,7 +656,7 @@ fn generateSingletonMethods(class_name: []const u8, code_builder: *StreamBuilder
 fn initializeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
     code_builder.reset();
     ctx.clearDependencies();
-    try code_builder.printLine(0, "pub const {s} = extern struct {{", .{class_name});
+    try code_builder.printLine(0, "pub const {s} = struct {{", .{class_name});
 }
 
 fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
@@ -671,7 +671,7 @@ fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder,
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
 }
 
-fn generateBuiltinClassMethods(bc: GdExtensionApi.BuiltinClass, class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+pub fn generateBuiltinClassMethods(bc: GdExtensionApi.BuiltinClass, class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
     var generated_method_map: types.StringVoidMap = .empty;
     defer generated_method_map.deinit(ctx.allocator);
 
@@ -679,7 +679,7 @@ fn generateBuiltinClassMethods(bc: GdExtensionApi.BuiltinClass, class_name: []co
 
     if (hasAnyMethod(bc)) {
         try generateConstructor(bc, code_builder, ctx);
-        try generateMethod(bc, code_builder, true, &generated_method_map, ctx);
+        try generateMethods(bc, code_builder, true, &generated_method_map, ctx);
     }
 }
 
@@ -690,7 +690,7 @@ fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, 
     try generateSingletonMethods(class_name, code_builder, &generated_method_map, ctx);
 
     if (hasAnyMethod(bc)) {
-        try generateMethod(bc, code_builder, false, &generated_method_map, ctx);
+        try generateMethods(bc, code_builder, false, &generated_method_map, ctx);
     }
 }
 
@@ -762,7 +762,7 @@ fn generateInstanceBindingCallbacks(class_name: []const u8, code_builder: *Strea
     try code_builder.printLine(0, callbacks_code, .{class_name});
 }
 
-fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
+pub fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
     const class_name = bc.name;
 
     if (shouldSkipClass(class_name)) {
@@ -788,7 +788,7 @@ fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, config:
 
 fn generateClasses(api: GdExtensionApi, comptime of_type: ClassType, config: CodegenConfig, ctx: *CodegenContext) !void {
     const class_defs = if (of_type == .builtinClass) api.builtin_classes else api.classes;
-    var code_builder = try StreamBuilder.init(ctx.allocator);
+    var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
 
     if (of_type != .builtinClass) {
@@ -797,18 +797,18 @@ fn generateClasses(api: GdExtensionApi, comptime of_type: ClassType, config: Cod
 
     for (class_defs) |bc| {
         if (of_type == .builtinClass) {
-            try generateBuiltinClass(bc, code_builder, config, ctx);
+            try generateBuiltinClass(bc, &code_builder, config, ctx);
         } else {
-            try generateClass(bc, code_builder, config, ctx);
+            try generateClass(bc, &code_builder, config, ctx);
         }
     }
 }
 
 fn generateGodotCore(fp_map: *const std.StringHashMapUnmanaged([]const u8), config: CodegenConfig, ctx: *CodegenContext) !void {
-    var code_builder = try StreamBuilder.init(ctx.allocator);
+    var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
 
-    var loader_builder = try StreamBuilder.init(ctx.allocator);
+    var loader_builder = StreamBuilder.init(ctx.allocator);
     defer loader_builder.deinit();
 
     try code_builder.writeLine(0, "const std = @import(\"std\");");
@@ -1030,9 +1030,9 @@ fn correctName(name: string, ctx: *CodegenContext) string {
     return name;
 }
 
-fn addImports(class_name: []const u8, code_builder: anytype, ctx: *CodegenContext) ![]const u8 {
+fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) ![]const u8 {
     //handle imports
-    var imp_builder = try StreamBuilder.init(ctx.allocator);
+    var imp_builder = StreamBuilder.init(ctx.allocator);
     defer imp_builder.deinit();
     var imported_class_map: types.StringBoolMap = .empty;
     defer imported_class_map.deinit(ctx.allocator);
@@ -1062,21 +1062,21 @@ fn addImports(class_name: []const u8, code_builder: anytype, ctx: *CodegenContex
         try imp_builder.printLine(0, "const {0s} = godot.{0s};", .{d});
     }
 
-    try imp_builder.writer.writeAll(code_builder.getWritten());
+    try imp_builder.write(0, code_builder.getWritten());
     return ctx.allocator.dupe(u8, imp_builder.getWritten());
 }
 
 fn generateUtilityFunctions(api: GdExtensionApi, config: CodegenConfig, ctx: *CodegenContext) !void {
-    var code_builder = try StreamBuilder.init(ctx.allocator);
+    var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
     ctx.clearDependencies();
 
     for (api.utility_functions) |f| {
         const return_type = correctType(f.return_type, "", ctx);
-        try generateProc(code_builder, f, "", f.name, return_type, .UtilityFunction, ctx);
+        try generateProc(&code_builder, f, "", f.name, return_type, .UtilityFunction, ctx);
     }
 
-    const code = try addImports("", code_builder, ctx);
+    const code = try addImports("", &code_builder, ctx);
     defer ctx.allocator.free(code);
 
     const file_name = try std.mem.concat(ctx.allocator, u8, &.{ config.output, "/util.zig" });

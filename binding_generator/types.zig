@@ -3,7 +3,7 @@ const enums = @import("enums.zig");
 
 const Allocator = std.mem.Allocator;
 
-pub const IdentWidth = 4;
+pub const ident_width = 4;
 pub const StringSizeMap = std.StringHashMapUnmanaged(i64);
 pub const StringBoolMap = std.StringHashMapUnmanaged(bool);
 pub const StringVoidMap = std.StringHashMapUnmanaged(void);

@@ -1,73 +1,80 @@
 const std = @import("std");
+const types = @import("types.zig");
 
-pub fn StreamBuilder(comptime T: type, comptime size: u32) type {
+pub fn StreamBuilder(comptime T: type) type {
     return struct {
-        pub const BufferType = [size]T;
-        pub const FBSType = std.io.FixedBufferStream([]T);
-        buf: BufferType = undefined,
-        fbs: FBSType = undefined,
-        allocator: std.mem.Allocator,
-        writer: FBSType.Writer,
-        last_write_pos: usize,
+        pub const Slice = []const T;
+        pub const List = std.ArrayListUnmanaged(T);
+
         const Self = @This();
-        pub const IdentWidth = 4;
-        pub fn init(allocator: std.mem.Allocator) !*Self {
-            var self = try allocator.create(Self);
-            self.fbs = std.io.fixedBufferStream(&self.buf);
-            self.writer = self.fbs.writer();
-            self.allocator = allocator;
-            self.last_write_pos = self.fbs.pos;
-            return self;
+
+        pub const ident_width = types.ident_width;
+
+        list: List,
+        allocator: std.mem.Allocator,
+        last_write_pos: usize,
+
+        pub fn init(allocator: std.mem.Allocator) Self {
+            return Self{
+                .allocator = allocator,
+                .list = .empty,
+                .last_write_pos = 0,
+            };
+        }
+
+        fn writer(self: *Self) List.Writer {
+            return self.list.writer(self.allocator);
         }
 
         pub fn deinit(self: *Self) void {
-            self.allocator.destroy(self);
+            self.list.deinit(self.allocator);
         }
 
         pub fn reset(self: *Self) void {
-            self.fbs.pos = 0;
+            self.list.clearAndFree(self.allocator);
+            self.list = .empty;
         }
 
-        pub fn getWritten(self: *Self) []T {
-            return self.fbs.getWritten();
+        pub fn getWritten(self: *Self) Slice {
+            return self.list.items;
         }
 
-        pub fn getLastWritten(self: *Self) []T {
-            return self.buf[self.last_write_pos..self.fbs.pos];
+        pub fn getLastWritten(self: *Self) Slice {
+            return self.list.items[self.last_write_pos..self.list.items.len];
         }
 
-        pub fn bufPrint(self: *Self, comptime format: []const u8, args: anytype) ![]T {
-            self.last_write_pos = self.fbs.pos;
-            try self.writer.print(format, args);
+        pub fn bufPrint(self: *Self, comptime format: []const u8, args: anytype) !Slice {
+            self.last_write_pos = self.list.items.len;
+            try self.writer().print(format, args);
             return self.getLastWritten();
         }
 
         pub fn print(self: *Self, indent_level: u8, comptime line: []const u8, args: anytype) !void {
-            self.last_write_pos = self.fbs.pos;
-            for (0..indent_level * IdentWidth) |_| {
-                _ = try self.writer.write(" ");
+            self.last_write_pos = self.list.items.len;
+            for (0..indent_level * ident_width) |_| {
+                try self.writer().writeAll(" ");
             }
-            try self.writer.print(line, args);
+            try self.writer().print(line, args);
         }
 
         pub fn printLine(self: *Self, indent_level: u8, comptime line: []const u8, args: anytype) !void {
-            self.last_write_pos = self.fbs.pos;
-            for (0..indent_level * IdentWidth) |_| {
-                _ = try self.writer.write(" ");
+            try self.print(indent_level, line, args);
+            try self.writer().writeAll("\n");
+        }
+
+        pub fn write(self: *Self, indent_level: u8, line: []const u8) !void {
+            self.last_write_pos = self.list.items.len;
+            for (0..indent_level * ident_width) |_| {
+                try self.writer().writeAll(" ");
             }
-            try self.writer.print(line, args);
-            _ = try self.writer.writeAll("\n");
+            try self.writer().writeAll(line);
         }
 
         pub fn writeLine(self: *Self, indent_level: u8, line: []const u8) !void {
-            self.last_write_pos = self.fbs.pos;
-            for (0..indent_level * IdentWidth) |_| {
-                _ = try self.writer.write(" ");
-            }
-            _ = try self.writer.writeAll(line);
-            _ = try self.writer.writeAll("\n");
+            try self.write(indent_level, line);
+            try self.writer().writeAll("\n");
         }
     };
 }
 
-pub const DefaultStreamBuilder = StreamBuilder(u8, 1024 * 1024);
+pub const DefaultStreamBuilder = StreamBuilder(u8);

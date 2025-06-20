@@ -3,7 +3,6 @@ const enums = @import("enums.zig");
 const codegen = @import("codegen.zig");
 
 const GdExtensionApi = @import("extension_api.zig");
-const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
 const Mode = enums.Mode;
 
 var outpath: []const u8 = undefined;
@@ -17,6 +16,7 @@ pub fn main() !void {
     const allocator = arena.allocator();
 
     const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
 
     if (args.len < 5) {
         std.debug.print("Usage: binding_generator export_path generated_path precision arch verbose\n", .{});
@@ -39,9 +39,8 @@ pub fn main() !void {
     try cwd.deleteTree(outpath);
     try cwd.makePath(outpath);
 
-    var temp_buf = try StreamBuilder.init(allocator);
-    defer temp_buf.deinit();
-    const conf = try temp_buf.bufPrint("{s}_{s}", .{ args[3], args[4] });
+    const conf = try std.fmt.allocPrint(allocator, "{s}_{s}", .{ args[3], args[4] });
+    defer allocator.free(conf);
 
     try codegen.generate(allocator, gdapi, .{
         .conf = conf,
