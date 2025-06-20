@@ -1,6 +1,7 @@
 const std = @import("std");
 const enums = @import("enums.zig");
 const codegen = @import("codegen.zig");
+const zimdjson = @import("zimdjson");
 
 const GdExtensionApi = @import("extension_api.zig");
 const Mode = enums.Mode;
@@ -31,10 +32,15 @@ pub fn main() !void {
     const gdextension_h_path = try std.fs.path.resolve(allocator, &.{ args[1], "gdextension_interface.h" });
     const extension_api_json_path = try std.fs.path.resolve(allocator, &.{ args[1], "extension_api.json" });
 
-    const contents = try cwd.readFileAlloc(allocator, extension_api_json_path, 10 * 1024 * 1024); //"./src/api/extension_api.json", 10 * 1024 * 1024);
+    const extension_api_json_file = try cwd.openFile(extension_api_json_path, .{});
+    defer extension_api_json_file.close();
 
-    const api = try std.json.parseFromSlice(GdExtensionApi, allocator, contents, .{ .ignore_unknown_fields = false });
-    const gdapi = api.value;
+    var parser = zimdjson.ondemand.FullParser(.default).init;
+    defer parser.deinit(allocator);
+
+    var document = try parser.parseFromReader(allocator, extension_api_json_file.reader().any());
+
+    const gdapi = try document.asLeaky(GdExtensionApi, allocator, .{});
 
     try cwd.deleteTree(outpath);
     try cwd.makePath(outpath);
@@ -47,6 +53,12 @@ pub fn main() !void {
         .gdextension_h_path = gdextension_h_path,
         .mode = mode,
         .output = outpath,
+    });
+
+    _ = try std.process.Child.run(.{
+        .allocator = allocator,
+        .argv = &.{ "zig", "fmt", outpath },
+        .max_output_bytes = 1024 * 1024,
     });
 
     if (mode == .verbose) {

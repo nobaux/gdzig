@@ -1,5 +1,4 @@
 const std = @import("std");
-const path = std.fs.path;
 
 const BINDGEN_INSTALL_RELPATH = "bindgen";
 
@@ -23,6 +22,9 @@ fn getDependencyModules(b: *std.Build, precision: []const u8) DependencyModules 
 
     const mvzr = b.dependency("mvzr", .{});
     modules.put("mvzr", mvzr.module("mvzr")) catch @panic("Failed to add mvzr module");
+
+    const zimdjson = b.dependency("zimdjson", .{});
+    modules.put("zimdjson", zimdjson.module("zimdjson")) catch @panic("Failed to add zimdjson module");
 
     return DependencyModules{
         .modules = modules,
@@ -86,15 +88,9 @@ pub fn build(b: *std.Build) !void {
 
     binding_generator.root_module.addImport("case", dep_modules.modules.get("case").?);
     binding_generator.root_module.addImport("mvzr", dep_modules.modules.get("mvzr").?);
+    binding_generator.root_module.addImport("zimdjson", dep_modules.modules.get("zimdjson").?);
 
     const bindgen = buildBindgen(b, gdextension.iface_headers.dirname(), binding_generator, precision, arch);
-
-    const bindgen_fmt = b.addSystemCommand(&.{
-        "zig",
-        "fmt",
-    });
-    bindgen_fmt.addDirectoryArg(bindgen.output_path);
-    _ = bindgen_fmt.captureStdOut();
 
     const godot_module = b.addModule("godot", .{
         .root_source_file = b.path("src/root.zig"),
@@ -120,7 +116,6 @@ pub fn build(b: *std.Build) !void {
         .name = "godot",
         .root_module = godot_module,
     });
-    lib.step.dependOn(&bindgen_fmt.step);
 
     b.installArtifact(lib);
 }
@@ -231,7 +226,7 @@ fn buildGdExtension(
 
             const dump_cmd = b.addSystemCommand(&.{
                 godot_path,
-                "--dump-extension-api",
+                "--dump-extension-api-with-docs",
                 "--dump-gdextension-interface",
                 "--headless",
             });

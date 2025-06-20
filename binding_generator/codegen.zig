@@ -131,6 +131,13 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         }
     };
 
+    if (@typeInfo(@TypeOf(fn_node)) != .null) {
+        const description: ?[]const u8 = fn_node.description;
+        if (description) |desc| {
+            try code_builder.writeComments(desc);
+        }
+    }
+
     if (proc_type == .Constructor) {
         var buf: [256]u8 = undefined;
         const atypes = getArgumentsTypes(fn_node, &buf, ctx);
@@ -219,7 +226,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         if (return_type[0] == '?') {
             try code_builder.printLine(1, "var result:{s} = null;", .{return_type});
         } else {
-            try code_builder.printLine(1, "var result:{0s} = @import(\"std\").mem.zeroes({0s});", .{return_type});
+            try code_builder.printLine(1, "var result:{0s} = undefined;", .{return_type});
         }
     }
 
@@ -244,17 +251,17 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         arg_count = "args.len";
     } else if (args.items.len > 0) {
         try code_builder.printLine(1, "var args:[{d}]godot.GDExtensionConstTypePtr = undefined;", .{args.items.len});
-        for (0..args.items.len) |i| {
+        for (args.items, arg_types.items, 0..) |arg, arg_type, i| {
             if (isEngineClass(arg_types.items[i], ctx)) {
-                try code_builder.printLine(1, "if(@typeInfo(@TypeOf({1s})) == .@\"struct\") {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr(&{1s})); }}", .{ i, args.items[i] });
-                try code_builder.printLine(1, "else if(@typeInfo(@TypeOf({1s})) == .optional) {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr(&{1s}.?)); }}", .{ i, args.items[i] });
-                try code_builder.printLine(1, "else if(@typeInfo(@TypeOf({1s})) == .pointer) {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr({1s})); }}", .{ i, args.items[i] });
+                try code_builder.printLine(1, "if(@typeInfo(@TypeOf({1s})) == .@\"struct\") {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr(&{1s})); }}", .{ i, arg });
+                try code_builder.printLine(1, "else if(@typeInfo(@TypeOf({1s})) == .optional) {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr(&{1s}.?)); }}", .{ i, arg });
+                try code_builder.printLine(1, "else if(@typeInfo(@TypeOf({1s})) == .pointer) {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr({1s})); }}", .{ i, arg });
                 try code_builder.printLine(1, "else {{ args[{0d}] = null; }}", .{i});
             } else {
-                if ((proc_type != .Constructor or !isStringType(class_name)) and (isStringType(arg_types.items[i]))) {
-                    try code_builder.printLine(1, "if(@TypeOf({2s}) == {1s}) {{ args[{0d}] = @ptrCast(&{2s}); }} else {{ args[{0d}] = @ptrCast(&{1s}.initFromLatin1Chars({2s})); }}", .{ i, arg_types.items[i], args.items[i] });
+                if ((proc_type != .Constructor or !isStringType(class_name)) and (isStringType(arg_type))) {
+                    try code_builder.printLine(1, "if(@TypeOf({2s}) == {1s}) {{ args[{0d}] = @ptrCast(&{2s}); }} else {{ args[{0d}] = @ptrCast(&{1s}.initFromLatin1Chars({2s})); }}", .{ i, arg_type, arg });
                 } else {
-                    try code_builder.printLine(1, "args[{d}] = @ptrCast(&{s});", .{ i, args.items[i] });
+                    try code_builder.printLine(1, "args[{d}] = @ptrCast(&{s});", .{ i, arg });
                 }
             }
         }
@@ -316,7 +323,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
             }
         },
         .Constructor => {
-            try code_builder.printLine(2, "const method: godot.GDExtensionPtrConstructor = godot.variantGetPtrConstructor({s}, {d}) orelse @panic(\"Constructor not found\");", .{ enum_type_name, fn_node.index });
+            try code_builder.printLine(2, "const method = godot.variantGetPtrConstructor({s}, {d}) orelse @panic(\"Constructor not found\");", .{ enum_type_name, fn_node.index });
             try code_builder.printLine(1, "method(@ptrCast(&result), {s});", .{arg_array});
         },
         .Destructor => {
@@ -650,10 +657,12 @@ fn generateSingletonMethods(class_name: []const u8, code_builder: *StreamBuilder
     }
 }
 
-fn initializeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+fn initializeClassGeneration(class_name: []const u8, description: ?[]const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
     code_builder.reset();
     ctx.clearDependencies();
-    try code_builder.printLine(0, "pub const {s} = struct {{", .{class_name});
+
+    if (description) |desc| try code_builder.writeComments(desc);
+    try code_builder.printLine(0, "pub const {s} = extern struct {{", .{class_name});
     try code_builder.writeLine(4, "pub const Self = @This();");
 }
 
@@ -701,7 +710,7 @@ fn generateBuiltinClass(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBu
 
     try ctx.appendClass(class_name);
 
-    try initializeClassGeneration(class_name, code_builder, ctx);
+    try initializeClassGeneration(class_name, bc.description orelse bc.brief_description, code_builder, ctx);
 
     if (isPackedArray(bc)) {
         try packed_array.generate(bc, code_builder, config, ctx);
@@ -721,7 +730,9 @@ fn isPackedArray(bc: GdExtensionApi.BuiltinClass) bool {
 }
 
 fn generateBuiltinClassField(class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
-    try code_builder.printLine(0, "value:[{d}]u8,", .{ctx.getClassSize(class_name).?});
+    try code_builder.printLine(0, "value:[{d}]u8,", .{
+        ctx.getClassSize(class_name) orelse std.debug.panic("Could not get class size for {x}", .{class_name}),
+    });
 }
 
 fn generateEngineClassField(bc: GdExtensionApi.Class, code_builder: *StreamBuilder) !void {
@@ -769,7 +780,7 @@ pub fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, con
     try ctx.appendClass(class_name);
     try ctx.appendEngineClass(class_name);
 
-    try initializeClassGeneration(class_name, code_builder, ctx);
+    try initializeClassGeneration(class_name, bc.description orelse bc.brief_description, code_builder, ctx);
     try generateEngineClassField(bc, code_builder);
     try generateEngineEnums(bc, code_builder);
     try generateEngineConstants(bc, code_builder);

@@ -25,24 +25,8 @@ pub const regex = mzvr.compile("^Packed([a-zA-Z0-9])+Array$") orelse @compileErr
 
 pub fn generate(class: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
     _ = config;
-    _ = ctx;
 
-    const array_type: PackedArrayType = try parseArrayType(class.name);
-
-    const zig_type = switch (array_type) {
-        .byte => "u8",
-        .int32 => "i32",
-        .int64 => "i64",
-        .float32 => "f32",
-        .float64 => "f64",
-        .string => "[]const u8",
-        .vector2 => "vector.Vector2",
-        .vector3 => "vector.Vector3",
-        .color => "godot.Color",
-        .vector4 => "vector.Vector4",
-    };
-
-    try code_builder.printLine(1, "value: []{s},", .{zig_type});
+    try code_builder.printLine(1, "value: [{d}]u8,", .{ctx.getClassSize(class.name).?});
 }
 
 fn parseArrayType(class_name: []const u8) !PackedArrayType {

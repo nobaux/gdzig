@@ -74,6 +74,14 @@ pub fn StreamBuilder(comptime T: type) type {
             try self.write(indent_level, line);
             try self.writer().writeAll("\n");
         }
+
+        pub fn writeComments(self: *Self, comments: []const u8) !void {
+            var lines = std.mem.splitSequence(u8, comments, "\n");
+            while (lines.next()) |line| {
+                try self.write(0, "/// ");
+                try self.writeLine(0, line);
+            }
+        }
     };
 }
 

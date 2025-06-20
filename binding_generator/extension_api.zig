@@ -39,6 +39,7 @@ pub const BuiltinClassMemberOffset = struct {
 pub const EnumValue = struct {
     name: string,
     value: int,
+    description: ?[]const u8 = null,
 };
 
 pub const GlobalEnum = struct {
@@ -64,11 +65,13 @@ pub const UtilityFunction = struct {
     is_vararg: bool,
     hash: u64,
     arguments: ?[]FunctionArgument = null,
+    description: ?[]const u8 = null,
 };
 
 pub const Member = struct {
     name: string,
     type: string,
+    description: ?[]const u8 = null,
 };
 
 pub const Constant = struct {
@@ -86,6 +89,7 @@ pub const Operator = struct {
     name: string,
     right_type: string = "",
     return_type: string,
+    description: ?[]const u8 = null,
 };
 
 pub const MethodArgument = struct {
@@ -102,6 +106,7 @@ pub const Method = struct {
     is_static: bool,
     hash: u64,
     arguments: ?[]MethodArgument = null,
+    description: ?[]const u8 = null,
 };
 
 pub const ConstructorArgument = struct {
@@ -112,6 +117,7 @@ pub const ConstructorArgument = struct {
 pub const Constructor = struct {
     index: int,
     arguments: ?[]ConstructorArgument = null,
+    description: ?[]const u8 = null,
 };
 
 pub const BuiltinClass = struct {
@@ -125,6 +131,8 @@ pub const BuiltinClass = struct {
     methods: ?[]Method = null,
     constructors: []Constructor,
     has_destructor: bool,
+    brief_description: ?[]const u8 = null,
+    description: ?[]const u8 = null,
 };
 
 pub const ClassConstant = struct {
@@ -162,6 +170,7 @@ pub const ClassMethod = struct {
     hash_compatibility: ?[]u64 = null,
     return_value: ?ReturnValue = null,
     arguments: ?[]ClassMethodArgument = null,
+    description: ?[]const u8 = null,
 };
 
 pub const SignalArgument = struct {
@@ -193,6 +202,8 @@ pub const Class = struct {
     methods: ?[]ClassMethod = null,
     signals: ?[]Signal = null,
     properties: ?[]Property = null,
+    brief_description: ?[]const u8,
+    description: ?[]const u8,
 };
 
 pub const Singleton = struct {
@@ -208,8 +219,8 @@ pub const NativeStructure = struct {
 header: Header,
 builtin_class_sizes: []BuiltinClassSize,
 builtin_class_member_offsets: []BuiltinClassMemberOffset,
-global_enums: []GlobalEnum,
 global_constants: []GlobalConstant,
+global_enums: []GlobalEnum,
 utility_functions: []UtilityFunction,
 builtin_classes: []BuiltinClass,
 classes: []Class,
