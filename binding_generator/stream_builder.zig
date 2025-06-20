@@ -69,3 +69,5 @@ pub fn StreamBuilder(comptime T: type, comptime size: u32) type {
         }
     };
 }
+
+pub const DefaultStreamBuilder = StreamBuilder(u8, 1024 * 1024);
