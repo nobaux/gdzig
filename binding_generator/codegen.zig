@@ -274,8 +274,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
 
     switch (proc_type) {
         .UtilityFunction => {
-            try code_builder.printLine(1, "const method = support.bindUtilityFunction({s}, \"{s}\", {d});", .{
-                "godot.GDExtensionPtrUtilityFunction",
+            try code_builder.printLine(1, "const method = support.bindUtilityFunction(\"{s}\", {d});", .{
                 func_name,
                 fn_node.hash,
             });
@@ -288,8 +287,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         .EngineClassMethod => {
             const self_ptr = if (is_static) "null" else "@ptrCast(godot.getGodotObjectPtr(self).*)";
 
-            try code_builder.printLine(1, "const method = support.bindEngineClassMethod({s}, {s}, \"{s}\", {d});", .{
-                "godot.GDExtensionMethodBindPtr",
+            try code_builder.printLine(1, "const method = support.bindEngineClassMethod({s}, \"{s}\", {d});", .{
                 class_name,
                 func_name,
                 fn_node.hash,
@@ -316,19 +314,15 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
             }
         },
         .BuiltinClassMethod => {
-            try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.GDExtensionPtrBuiltInMethod = null; };");
-            try code_builder.writeLine(1, "if( Binding.method == null ) {");
-            try code_builder.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{func_name});
-            try code_builder.printLine(2, "Binding.method = godot.variantGetPtrBuiltinMethod({s}, @ptrCast(&func_name.value), {d});", .{ enum_type_name, fn_node.hash });
-            try code_builder.writeLine(1, "}");
+            try code_builder.printLine(1, "const method = support.bindBuiltinClassMethod({s}, \"{s}\", {d});", .{ enum_type_name, func_name, fn_node.hash });
             if (is_static) {
-                try code_builder.printLine(1, "Binding.method.?(null, {s}, {s}, {s});", .{ arg_array, result_string, arg_count });
+                try code_builder.printLine(1, "method(null, {s}, {s}, {s});", .{ arg_array, result_string, arg_count });
             } else {
-                try code_builder.printLine(1, "Binding.method.?(@ptrCast(@constCast(&self.value)), {s}, {s}, {s});", .{ arg_array, result_string, arg_count });
+                try code_builder.printLine(1, "method(@ptrCast(@constCast(&self.value)), {s}, {s}, {s});", .{ arg_array, result_string, arg_count });
             }
         },
         .Constructor => {
-            try code_builder.printLine(2, "const method = godot.variantGetPtrConstructor({s}, {d}) orelse @panic(\"Constructor not found\");", .{ enum_type_name, fn_node.index });
+            try code_builder.printLine(2, "const method = support.bindConstructorMethod({s}, {d});", .{ enum_type_name, fn_node.index });
             try code_builder.printLine(1, "method(@ptrCast(&result), {s});", .{arg_array});
         },
         .Destructor => {
