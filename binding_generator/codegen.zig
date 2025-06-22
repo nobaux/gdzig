@@ -106,7 +106,7 @@ const native_type_map = std.StaticStringMap(void).initComptime(.{
 const func_case: case.Case = .camel;
 
 pub fn generate(allocator: Allocator, gdapi: GdExtensionApi, config: CodegenConfig) !void {
-    var ctx = try CodegenContext.init(allocator);
+    var ctx = try CodegenContext.init(allocator, gdapi);
     defer ctx.deinit();
 
     try parseGdExtensionHeaders(config, &ctx);
@@ -404,10 +404,48 @@ pub fn generateConstructor(class_node: GdExtensionApi.BuiltinClass, code_builder
     }
 }
 
-pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, comptime is_builtin_class: bool, generated_method_map: *types.StringVoidMap, ctx: *CodegenContext) !void {
+pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+    const class_name = try std.fmt.allocPrint(ctx.allocator, "godot.{s}", .{class_node.getClassName()});
+    defer ctx.allocator.free(class_name);
+
+    switch (class_node) {
+        .builtinClass => |builtin_class| {
+            if (builtin_class.methods) |methods| {
+                for (methods) |method| {
+                    if (method.isPrivate()) continue;
+
+                    const return_type = getReturnType(.{ .builtinClass = method }, ctx);
+                    try code_builder.printLine(1, "/// {s} builtin method: {s}", .{ builtin_class.name, method.name });
+                    try generateProc(code_builder, method, class_name, method.name, return_type, .BuiltinClassMethod, ctx);
+                }
+            }
+        },
+        .class => |class| {
+            if (class.methods) |methods| {
+                for (methods) |method| {
+                    if (method.isPrivate()) continue;
+
+                    const return_type = getReturnType(.{ .class = method }, ctx);
+                    try code_builder.printLine(1, "/// {s} class method: {s}", .{ class.name, method.name });
+                    try generateProc(code_builder, method, class_name, method.name, return_type, .EngineClassMethod, ctx);
+                }
+            }
+        },
+    }
+}
+
+fn getReturnType(method: GdExtensionApi.GdMethod, ctx: *CodegenContext) []const u8 {
+    return switch (method) {
+        .builtinClass => |bc| correctType(bc.return_type, "", ctx),
+        .class => |cls| if (cls.return_value) |ret| correctType(ret.type, ret.meta, ctx) else "void",
+    };
+}
+
+pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, generated_method_map: *types.StringVoidMap, ctx: *CodegenContext) !void {
     const class_name = correctName(class_node.name, ctx);
     const enum_type_name = getVariantTypeName(class_name, ctx);
 
+    const is_builtin_class = @TypeOf(class_node) == GdExtensionApi.BuiltinClass;
     const proc_type = if (is_builtin_class) ProcType.BuiltinClassMethod else ProcType.EngineClassMethod;
 
     var vf_builder = StreamBuilder.init(ctx.allocator);
@@ -472,16 +510,17 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, compti
         }
     }
     if (!is_builtin_class) {
-        const temp_virtual_func_name = try std.fmt.allocPrint(ctx.allocator, "get_virtual_{s}", .{class_name});
-        const virtual_func_name = getZigFuncName(temp_virtual_func_name, ctx);
+        var class_inherits = try ctx.api.findInherits(ctx.allocator, class_node);
+        defer class_inherits.deinit(ctx.allocator);
 
-        try code_builder.printLine(0, "pub fn {s}(comptime T:type, p_userdata: ?*anyopaque, p_name: godot.GDExtensionConstStringNamePtr) godot.GDExtensionClassCallVirtual {{", .{virtual_func_name});
+        for (class_inherits.items) |inherits| {
+            try generateVirtualMethods(inherits, code_builder, ctx);
+        }
+
+        try code_builder.writeLine(0, "pub fn getVirtualDispatch(comptime T:type, p_userdata: ?*anyopaque, p_name: godot.GDExtensionConstStringNamePtr) godot.GDExtensionClassCallVirtual {");
         try code_builder.writeLine(0, vf_builder.getWritten());
         if (class_node.inherits.len > 0) {
-            const temp_virtual_inherits_func_name = try std.fmt.allocPrint(ctx.allocator, "get_virtual_{s}", .{class_node.inherits});
-            const virtual_inherits_func_name = getZigFuncName(temp_virtual_inherits_func_name, ctx);
-
-            try code_builder.printLine(1, "return godot.{s}.{s}(T, p_userdata, p_name);", .{ class_node.inherits, virtual_inherits_func_name });
+            try code_builder.printLine(1, "return godot.{s}.getVirtualDispatch(T, p_userdata, p_name);", .{class_node.inherits});
         } else {
             try code_builder.writeLine(1, "_ = T;");
             try code_builder.writeLine(1, "_ = p_userdata;");
@@ -682,7 +721,7 @@ pub fn generateBuiltinClassMethods(bc: GdExtensionApi.BuiltinClass, class_name: 
 
     if (hasAnyMethod(bc)) {
         try generateConstructor(bc, code_builder, ctx);
-        try generateMethods(bc, code_builder, true, &generated_method_map, ctx);
+        try generateMethods(bc, code_builder, &generated_method_map, ctx);
     }
 }
 
@@ -691,10 +730,7 @@ fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, 
     defer generated_method_map.deinit(ctx.allocator);
 
     try generateSingletonMethods(class_name, code_builder, &generated_method_map, ctx);
-
-    if (hasAnyMethod(bc)) {
-        try generateMethods(bc, code_builder, false, &generated_method_map, ctx);
-    }
+    try generateMethods(bc, code_builder, &generated_method_map, ctx);
 }
 
 fn generateBuiltinClass(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
@@ -732,12 +768,8 @@ fn generateBuiltinClassField(class_name: []const u8, code_builder: *StreamBuilde
 }
 
 fn generateEngineClassField(bc: GdExtensionApi.Class, code_builder: *StreamBuilder) !void {
+    _ = bc;
     try code_builder.writeLine(0, "godot_object: ?*anyopaque,\n");
-
-    // Handle inheritance
-    if (bc.inherits.len > 0) {
-        try code_builder.printLine(0, "pub usingnamespace godot.{s};", .{bc.inherits});
-    }
 }
 
 fn generateInstanceBindingCallbacks(class_name: []const u8, code_builder: *StreamBuilder) !void {

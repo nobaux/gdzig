@@ -208,6 +208,10 @@ pub fn registerPlugin(p_get_proc_address: c.GDExtensionInterfaceGetProcAddress, 
     return 1;
 }
 
+const ClassUserData = struct {
+    class_name: []const u8,
+};
+
 var registered_classes: std.StringHashMap(bool) = undefined;
 pub fn registerClass(comptime T: type) void {
     const class_name = getBaseName(@typeName(T));
@@ -228,6 +232,7 @@ pub fn registerClass(comptime T: type) void {
                 .{ .T = c.GDExtensionClassCreationInfo2, .version = 2 }
             else
                 @compileError("Godot 4.2 or higher is required.");
+
             var info: ClassInfo.T = .{
                 .is_virtual = 0,
                 .is_abstract = 0,
@@ -249,7 +254,9 @@ pub fn registerClass(comptime T: type) void {
                 .get_virtual_call_data_func = null,
                 .call_virtual_with_data_func = null,
                 .get_rid_func = null,
-                .class_userdata = @ptrCast(getClassName(T)), // Per-class user data, later accessible in instance bindings.
+                .class_userdata = @constCast(@ptrCast(&ClassUserData{
+                    .class_name = @typeName(T),
+                })), // Per-class user data, later accessible in instance bindings.
             };
             if (ClassInfo.version >= 3) {
                 info.is_runtime = 0;
@@ -399,9 +406,14 @@ pub fn registerClass(comptime T: type) void {
             _ = p_userdata;
         }
 
-        pub fn getVirtualBind(p_userdata: ?*anyopaque, p_name: c.GDExtensionConstStringNamePtr) callconv(.C) c.GDExtensionClassCallVirtual {
-            const virtual_bind = @field(T, "getVirtual" ++ parent_class_name);
-            return virtual_bind(T, p_userdata, p_name);
+        fn getClassDataFromOpaque(p_class_userdata: ?*anyopaque) *const ClassUserData {
+            return @alignCast(@ptrCast(p_class_userdata));
+        }
+
+        pub fn getVirtualBind(p_class_userdata: ?*anyopaque, p_name: c.GDExtensionConstStringNamePtr) callconv(.C) c.GDExtensionClassCallVirtual {
+            const Base = std.meta.FieldType(T, .base);
+            const virtual_bind = @field(Base, "getVirtualDispatch");
+            return virtual_bind(T, p_class_userdata, p_name);
         }
 
         pub fn getRidBind(p_instance: c.GDExtensionClassInstancePtr) callconv(.C) u64 {

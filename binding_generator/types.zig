@@ -2,6 +2,7 @@ const std = @import("std");
 const enums = @import("enums.zig");
 
 const Allocator = std.mem.Allocator;
+const GdExtensionApi = @import("extension_api.zig");
 
 pub const ident_width = 4;
 pub const StringSizeMap = std.StringHashMapUnmanaged(i64);
@@ -27,8 +28,9 @@ pub const CodegenContext = struct {
     all_classes: std.ArrayListUnmanaged([]const u8),
     all_engine_classes: std.ArrayListUnmanaged([]const u8),
     depends: std.ArrayListUnmanaged([]const u8),
+    api: GdExtensionApi,
 
-    pub fn init(allocator: Allocator) !CodegenContext {
+    pub fn init(allocator: Allocator, api: GdExtensionApi) !CodegenContext {
         return CodegenContext{
             .allocator = allocator,
             .func_name_map = .empty,
@@ -40,6 +42,7 @@ pub const CodegenContext = struct {
             .all_classes = .empty,
             .all_engine_classes = .empty,
             .depends = .empty,
+            .api = api,
         };
     }
 

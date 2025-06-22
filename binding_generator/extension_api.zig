@@ -1,3 +1,5 @@
+const std = @import("std");
+
 const string = []const u8;
 const int = i64;
 
@@ -107,6 +109,14 @@ pub const Method = struct {
     hash: u64,
     arguments: ?[]MethodArgument = null,
     description: ?[]const u8 = null,
+
+    pub fn isPrivate(self: Method) bool {
+        return std.mem.startsWith(u8, self.name, "_");
+    }
+
+    pub fn isPublic(self: Method) bool {
+        return !self.isPrivate();
+    }
 };
 
 pub const ConstructorArgument = struct {
@@ -171,6 +181,14 @@ pub const ClassMethod = struct {
     return_value: ?ReturnValue = null,
     arguments: ?[]ClassMethodArgument = null,
     description: ?[]const u8 = null,
+
+    pub fn isPrivate(self: ClassMethod) bool {
+        return std.mem.startsWith(u8, self.name, "_");
+    }
+
+    pub fn isPublic(self: ClassMethod) bool {
+        return !self.isPrivate();
+    }
 };
 
 pub const SignalArgument = struct {
@@ -226,3 +244,70 @@ builtin_classes: []BuiltinClass,
 classes: []Class,
 singletons: []Singleton,
 native_structures: []NativeStructure,
+
+pub fn findClass(self: @This(), name: []const u8) ?Class {
+    for (self.classes) |class| {
+        if (std.mem.eql(u8, class.name, name)) {
+            return class;
+        }
+    }
+
+    return null;
+}
+
+pub fn findBuiltinClass(self: @This(), name: []const u8) ?BuiltinClass {
+    for (self.builtin_classes) |class| {
+        if (std.mem.eql(u8, class.name, name)) {
+            return class;
+        }
+    }
+
+    return null;
+}
+
+pub const GdClassType = enum {
+    class,
+    builtinClass,
+};
+
+pub const GdMethodType = enum {
+    class,
+    builtinClass,
+};
+
+pub const GdMethod = union(GdMethodType) {
+    class: ClassMethod,
+    builtinClass: Method,
+};
+
+pub const GdClass = union(GdClassType) {
+    class: Class,
+    builtinClass: BuiltinClass,
+
+    pub fn getClassName(self: @This()) []const u8 {
+        switch (self) {
+            inline else => |class| return class.name,
+        }
+    }
+};
+
+pub fn findInherits(self: @This(), allocator: std.mem.Allocator, class: Class) !std.ArrayListUnmanaged(GdClass) {
+    var inherits: std.ArrayListUnmanaged(GdClass) = .empty;
+    try self.findInheritsRecursive(allocator, class, &inherits);
+    return inherits;
+}
+
+fn findInheritsRecursive(self: @This(), allocator: std.mem.Allocator, class: Class, inherits: *std.ArrayListUnmanaged(GdClass)) !void {
+    if (class.inherits.len == 0) {
+        return;
+    }
+
+    if (self.findClass(class.inherits)) |parent| {
+        try inherits.append(allocator, .{ .class = parent });
+        try self.findInheritsRecursive(allocator, parent, inherits);
+    }
+
+    if (self.findBuiltinClass(class.inherits)) |parent| {
+        try inherits.append(allocator, .{ .builtinClass = parent });
+    }
+}
