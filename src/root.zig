@@ -1,5 +1,4 @@
 const std = @import("std");
-const builtin = @import("builtin");
 
 const core = @import("godot_core");
 const c = core.c;
@@ -91,10 +90,10 @@ const DATA_OFFSET = if ((ELEMENT_OFFSET + @sizeOf(u64)) % @alignOf(max_align_t) 
 
 pub fn alloc(size: u32) ?[*]u8 {
     if (@import("builtin").mode == .Debug) {
-        const p = @as([*c]u8, @ptrCast(core.memAlloc(size)));
+        const p: [*c]u8 = @ptrCast(core.memAlloc(size));
         return p;
     } else {
-        const p = @as([*c]u8, @ptrCast(core.memAlloc(size + DATA_OFFSET)));
+        const p: [*c]u8 = @ptrCast(core.memAlloc(size + DATA_OFFSET));
         return @ptrCast(&p[DATA_OFFSET]);
     }
 }
@@ -141,8 +140,7 @@ pub fn castSafe(comptime TargetType: type, object: anytype) ?TargetType {
 
 pub fn create(comptime T: type) !*T {
     const self = try general_allocator.create(T);
-    self.* = std.mem.zeroInit(T, .{});
-    self.base = .{ .godot_object = core.classdbConstructObject(@ptrCast(getParentClassName(T))) };
+    self.base = .{ .godot_object = core.classdbConstructObject2(@ptrCast(getParentClassName(T))) };
     core.objectSetInstance(self.base.godot_object, @ptrCast(getClassName(T)), @ptrCast(self));
     core.objectSetInstanceBinding(self.base.godot_object, core.p_library, @ptrCast(self), @ptrCast(&dummy_callbacks));
     if (@hasDecl(T, "init")) {
@@ -290,7 +288,7 @@ pub fn registerClass(comptime T: type) void {
 
                 const count: u32 = @intCast(property_list.len);
 
-                const propertyies = @as([*c]c.GDExtensionPropertyInfo, @ptrCast(@alignCast(alloc(@sizeOf(c.GDExtensionPropertyInfo) * count))));
+                const propertyies: [*c]c.GDExtensionPropertyInfo = @ptrCast(@alignCast(alloc(@sizeOf(c.GDExtensionPropertyInfo) * count)));
                 for (property_list, 0..) |*property, i| {
                     propertyies[i].type = property.type;
                     propertyies[i].hint = property.hint;
