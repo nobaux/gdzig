@@ -631,28 +631,6 @@ fn parseEngineClasses(api: GdExtensionApi, ctx: *CodegenContext) !void {
     }
 }
 
-fn hasAnyMethod(class_node: anytype) bool {
-    if (@hasField(@TypeOf(class_node), "constructors")) {
-        if (class_node.constructors.len > 0) return true;
-    }
-    if (@hasField(@TypeOf(class_node), "has_destructor")) {
-        if (class_node.has_destructor) return true;
-    }
-    if (class_node.methods != null) {
-        return true;
-    }
-    if (@hasField(@TypeOf(class_node), "members")) {
-        if (class_node.members) |ms| {
-            if (ms.len > 0) return true;
-        }
-    }
-    if (@hasField(@TypeOf(class_node), "indexing_return_type")) return true;
-    if (@hasField(@TypeOf(class_node), "is_keyed")) {
-        if (class_node.is_keyed) return true;
-    }
-    return false;
-}
-
 fn getArgumentsTypes(fn_node: anytype, buf: []u8, ctx: *CodegenContext) string {
     var pos: usize = 0;
     if (@hasField(@TypeOf(fn_node), "arguments")) {
@@ -718,11 +696,8 @@ pub fn generateBuiltinClassMethods(bc: GdExtensionApi.BuiltinClass, class_name: 
     defer generated_method_map.deinit(ctx.allocator);
 
     try generateSingletonMethods(class_name, code_builder, &generated_method_map, ctx);
-
-    if (hasAnyMethod(bc)) {
-        try generateConstructor(bc, code_builder, ctx);
-        try generateMethods(bc, code_builder, &generated_method_map, ctx);
-    }
+    try generateConstructor(bc, code_builder, ctx);
+    try generateMethods(bc, code_builder, &generated_method_map, ctx);
 }
 
 fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
