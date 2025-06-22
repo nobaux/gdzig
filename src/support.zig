@@ -1,4 +1,3 @@
-const std = @import("std");
 const godot = @import("root.zig");
 
 pub const GodotMethodBind = struct {
@@ -83,4 +82,16 @@ pub inline fn bindBuiltinClassMethod(variant_type: ?comptime_int, comptime name:
     };
 
     return bindMethod(BuiltInClassMethod, name, S);
+}
+
+const DestructorMethod = @typeInfo(godot.GDExtensionPtrDestructor).optional.child;
+
+pub inline fn bindDestructorMethod(variant_type: comptime_int) DestructorMethod {
+    const S = struct {
+        pub fn init(_: ?godot.StringName) DestructorMethod {
+            return godot.variantGetPtrDestructor(variant_type).?;
+        }
+    };
+
+    return bindMethod(DestructorMethod, null, S);
 }

@@ -326,11 +326,8 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
             try code_builder.printLine(1, "method(@ptrCast(&result), {s});", .{arg_array});
         },
         .Destructor => {
-            try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.GDExtensionPtrDestructor = null; };");
-            try code_builder.writeLine(1, "if( Binding.method == null ) {");
-            try code_builder.printLine(2, "Binding.method = godot.variantGetPtrDestructor({s});", .{enum_type_name});
-            try code_builder.writeLine(1, "}");
-            try code_builder.writeLine(1, "Binding.method.?(@ptrCast(&self.value));");
+            try code_builder.printLine(1, "const method = support.bindDestructorMethod({s});", .{enum_type_name});
+            try code_builder.writeLine(1, "method(@ptrCast(&self.value));");
         },
     }
 
