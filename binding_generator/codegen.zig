@@ -274,8 +274,16 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
 
     switch (proc_type) {
         .UtilityFunction => {
-            try code_builder.printLine(1, "const method = support.bindUtilityFunction({s}, \"{s}\", {d});", .{ "godot.GDExtensionPtrUtilityFunction", func_name, fn_node.hash });
-            try code_builder.printLine(1, "method({s}, {s}, {s});", .{ result_string, arg_array, arg_count });
+            try code_builder.printLine(1, "const method = support.bindUtilityFunction({s}, \"{s}\", {d});", .{
+                "godot.GDExtensionPtrUtilityFunction",
+                func_name,
+                fn_node.hash,
+            });
+            try code_builder.printLine(1, "method({s}, {s}, {s});", .{
+                result_string,
+                arg_array,
+                arg_count,
+            });
         },
         .EngineClassMethod => {
             const self_ptr = if (is_static) "null" else "@ptrCast(godot.getGodotObjectPtr(self).*)";
