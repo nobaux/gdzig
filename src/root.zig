@@ -5,6 +5,8 @@ const core = @import("godot_core");
 const c = core.c;
 const global = core.global;
 
+pub const support = @import("support.zig");
+
 pub usingnamespace core;
 pub usingnamespace core.c;
 

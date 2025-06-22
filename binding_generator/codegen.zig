@@ -274,28 +274,25 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
 
     switch (proc_type) {
         .UtilityFunction => {
-            try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.GDExtensionPtrUtilityFunction = null; };");
-            try code_builder.writeLine(1, "if( Binding.method == null ) {");
-            try code_builder.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{func_name});
-            try code_builder.printLine(2, "Binding.method = godot.variantGetPtrUtilityFunction(@ptrCast(&func_name), {d});", .{fn_node.hash});
-            try code_builder.writeLine(1, "}");
-            try code_builder.printLine(1, "Binding.method.?({s}, {s}, {s});", .{ result_string, arg_array, arg_count });
+            try code_builder.printLine(1, "const method = support.bindUtilityFunction({s}, \"{s}\", {d});", .{ "godot.GDExtensionPtrUtilityFunction", func_name, fn_node.hash });
+            try code_builder.printLine(1, "method({s}, {s}, {s});", .{ result_string, arg_array, arg_count });
         },
         .EngineClassMethod => {
             const self_ptr = if (is_static) "null" else "@ptrCast(godot.getGodotObjectPtr(self).*)";
 
-            try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.GDExtensionMethodBindPtr = null; };");
-            try code_builder.writeLine(1, "if( Binding.method == null ) {");
-            try code_builder.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{func_name});
-            try code_builder.printLine(2, "Binding.method = godot.classdbGetMethodBind(@ptrCast(godot.getClassName({s})), @ptrCast(&func_name), {d});", .{ class_name, fn_node.hash });
-            try code_builder.writeLine(1, "}");
+            try code_builder.printLine(1, "const method = support.bindEngineClassMethod({s}, {s}, \"{s}\", {d});", .{
+                "godot.GDExtensionMethodBindPtr",
+                class_name,
+                func_name,
+                fn_node.hash,
+            });
             if (is_vararg) {
                 try code_builder.writeLine(1, "var err:godot.GDExtensionCallError = undefined;");
                 if (std.mem.eql(u8, return_type, "Variant")) {
-                    try code_builder.printLine(1, "godot.objectMethodBindCall(Binding.method.?, {s}, @ptrCast(@alignCast(&args[0])), args.len, &result, &err);", .{self_ptr});
+                    try code_builder.printLine(1, "godot.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &result, &err);", .{self_ptr});
                 } else {
                     try code_builder.writeLine(1, "var ret:Variant = Variant.init();");
-                    try code_builder.printLine(1, "godot.objectMethodBindCall(Binding.method.?, {s}, @ptrCast(@alignCast(&args[0])), args.len, &ret, &err);", .{self_ptr});
+                    try code_builder.printLine(1, "godot.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &ret, &err);", .{self_ptr});
                     if (need_return) {
                         try code_builder.printLine(1, "result = ret.as({s});", .{return_type});
                     }
@@ -303,10 +300,10 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
             } else {
                 if (isEngineClass(return_type, ctx)) {
                     try code_builder.writeLine(1, "var godot_object:?*anyopaque = null;");
-                    try code_builder.printLine(1, "godot.objectMethodBindPtrcall(Binding.method.?, {s}, {s}, @ptrCast(&godot_object));", .{ self_ptr, arg_array });
+                    try code_builder.printLine(1, "godot.objectMethodBindPtrcall(method, {s}, {s}, @ptrCast(&godot_object));", .{ self_ptr, arg_array });
                     try code_builder.printLine(1, "result = {s}{{ .godot_object = godot_object }};", .{childType(return_type)});
                 } else {
-                    try code_builder.printLine(1, "godot.objectMethodBindPtrcall(Binding.method.?, {s}, {s}, {s});", .{ self_ptr, arg_array, result_string });
+                    try code_builder.printLine(1, "godot.objectMethodBindPtrcall(method, {s}, {s}, {s});", .{ self_ptr, arg_array, result_string });
                 }
             }
         },
@@ -1056,6 +1053,7 @@ fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Codege
     try imported_class_map.put(ctx.allocator, "StringName", true);
 
     try imp_builder.writeLine(0, "const godot = @import(\"godot\");");
+    try imp_builder.writeLine(0, "const support = godot.support;");
     try imp_builder.writeLine(0, "const c = godot.c;");
     try imp_builder.writeLine(0, "const vector = @import(\"vector\");");
 
