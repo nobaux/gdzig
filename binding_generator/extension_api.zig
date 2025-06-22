@@ -222,6 +222,17 @@ pub const Class = struct {
     properties: ?[]Property = null,
     brief_description: ?[]const u8,
     description: ?[]const u8,
+
+    pub fn findMethod(self: Class, name: []const u8) ?ClassMethod {
+        if (self.methods) |methods| {
+            for (methods) |method| {
+                if (std.mem.eql(u8, method.name, name)) {
+                    return method;
+                }
+            }
+        }
+        return null;
+    }
 };
 
 pub const Singleton = struct {

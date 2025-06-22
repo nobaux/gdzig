@@ -631,7 +631,7 @@ fn parseEngineClasses(api: GdExtensionApi, ctx: *CodegenContext) !void {
     }
 }
 
-fn getArgumentsTypes(fn_node: anytype, buf: []u8, ctx: *CodegenContext) string {
+fn getArgumentsTypes(fn_node: GdExtensionApi.Constructor, buf: []u8, ctx: *CodegenContext) string {
     var pos: usize = 0;
     if (@hasField(@TypeOf(fn_node), "arguments")) {
         if (fn_node.arguments) |as| {
@@ -784,17 +784,33 @@ pub fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, con
     try ctx.appendEngineClass(class_name);
 
     try initializeClassGeneration(class_name, bc.description orelse bc.brief_description, code_builder, ctx);
+
     try generateEngineClassField(bc, code_builder);
     try generateEngineEnums(bc, code_builder);
     try generateEngineConstants(bc, code_builder);
 
+    if (bc.findMethod("init") == null) {
+        try generateBasicInit(code_builder, class_name);
+    }
+
     try generateEngineClassMethods(bc, class_name, code_builder, ctx);
 
+    // TODO: what is this for?
     if (false) {
         try generateInstanceBindingCallbacks(class_name, code_builder);
     }
 
     try finalizeClassGeneration(class_name, code_builder, config, ctx);
+}
+
+fn generateBasicInit(code_builder: *StreamBuilder, class_name: []const u8) !void {
+    const constructor_code =
+        \\pub fn init() {0s} {{
+        \\    return godot.init{0s}();
+        \\}}
+    ;
+
+    try code_builder.printLine(1, constructor_code, .{class_name});
 }
 
 fn generateClasses(api: GdExtensionApi, comptime of_type: ClassType, config: CodegenConfig, ctx: *CodegenContext) !void {
