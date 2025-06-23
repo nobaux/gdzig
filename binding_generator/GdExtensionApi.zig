@@ -1,78 +1,84 @@
-const std = @import("std");
-
-const string = []const u8;
-const int = i64;
+header: Header,
+builtin_class_sizes: []BuiltinClassSize,
+builtin_class_member_offsets: []BuiltinClassMemberOffset,
+global_constants: []GlobalConstant,
+global_enums: []GlobalEnum,
+utility_functions: []UtilityFunction,
+builtin_classes: []Builtin,
+classes: []Class,
+singletons: []Singleton,
+native_structures: []NativeStructure,
 
 pub const Header = struct {
-    version_major: int,
-    version_minor: int,
-    version_patch: int,
-    version_status: string,
-    version_build: string,
-    version_full_name: string,
+    version_major: i64,
+    version_minor: i64,
+    version_patch: i64,
+    version_status: []const u8,
+    version_build: []const u8,
+    version_full_name: []const u8,
 };
 
 pub const SizeInfo = struct {
-    name: string,
-    size: int,
+    name: []const u8,
+    size: i64,
 };
 
 pub const BuiltinClassSize = struct {
-    build_configuration: string,
+    build_configuration: []const u8,
     sizes: []SizeInfo,
 };
 
 pub const MemberOffset = struct {
-    member: string,
-    offset: int,
-    meta: string,
+    member: []const u8,
+    offset: i64,
+    meta: []const u8,
 };
 
 pub const ClassMemberOffsets = struct {
-    name: string,
+    name: []const u8,
     members: []MemberOffset,
 };
 
 pub const BuiltinClassMemberOffset = struct {
-    build_configuration: string,
+    build_configuration: []const u8,
     classes: []ClassMemberOffsets,
 };
 
 pub const GlobalEnum = struct {
-    name: string,
+    name: []const u8,
     is_bitfield: bool,
     values: []Value,
 
     pub const Value = struct {
-        name: string,
-        value: int,
+        name: []const u8,
+        value: i64,
         description: ?[]const u8 = null,
     };
 };
 
 pub const GlobalConstant = struct {
-    name: string,
-    value: string,
+    name: []const u8,
+    value: []const u8,
 };
 
 pub const UtilityFunction = struct {
-    name: string,
-    return_type: string = "",
-    category: string,
+    name: []const u8,
+    return_type: []const u8 = "",
+    category: []const u8,
     is_vararg: bool,
     hash: u64,
     arguments: ?[]Argument = null,
     description: ?[]const u8 = null,
 
     pub const Argument = struct {
-        name: string,
-        type: string,
+        name: []const u8,
+        type: []const u8,
     };
 };
 
 pub const Builtin = struct {
-    name: string,
-    indexing_return_type: string = "",
+    name: []const u8,
+    indexing_return_type: []const u8 = "",
     is_keyed: bool,
     members: ?[]Member = null,
     constants: ?[]Constant = null,
@@ -85,19 +91,19 @@ pub const Builtin = struct {
     description: ?[]const u8 = null,
 
     pub const Constructor = struct {
-        index: int,
+        index: i64,
         arguments: ?[]Argument = null,
         description: ?[]const u8 = null,
 
         pub const Argument = struct {
-            name: string,
-            type: string,
+            name: []const u8,
+            type: []const u8,
         };
     };
 
     pub const Method = struct {
-        name: string,
-        return_type: string = "void",
+        name: []const u8,
+        return_type: []const u8 = "void",
         is_vararg: bool,
         is_const: bool,
         is_static: bool,
@@ -114,59 +120,59 @@ pub const Builtin = struct {
         }
 
         pub const Argument = struct {
-            name: string,
-            type: string,
-            default_value: string = "",
+            name: []const u8,
+            type: []const u8,
+            default_value: []const u8 = "",
         };
     };
 
     pub const Operator = struct {
-        name: string,
-        right_type: string = "",
-        return_type: string,
+        name: []const u8,
+        right_type: []const u8 = "",
+        return_type: []const u8,
         description: ?[]const u8 = null,
     };
 
     pub const Enum = struct {
-        name: string,
+        name: []const u8,
         values: []Value,
 
         pub const Value = struct {
-            name: string,
-            value: int,
+            name: []const u8,
+            value: i64,
             description: ?[]const u8 = null,
         };
     };
 
     pub const Constant = struct {
-        name: string,
-        type: string,
-        value: string,
+        name: []const u8,
+        type: []const u8,
+        value: []const u8,
     };
 
     pub const Member = struct {
-        name: string,
-        type: string,
+        name: []const u8,
+        type: []const u8,
         description: ?[]const u8 = null,
     };
 };
 
 pub const Signal = struct {
-    name: string,
+    name: []const u8,
     arguments: ?[]Argument = null,
 
     pub const Argument = struct {
-        name: string,
-        type: string,
+        name: []const u8,
+        type: []const u8,
     };
 };
 
 pub const Class = struct {
-    name: string,
+    name: []const u8,
     is_refcounted: bool,
     is_instantiable: bool,
-    inherits: string = "",
-    api_type: string,
+    inherits: []const u8 = "",
+    api_type: []const u8,
     constants: ?[]Constant = null,
     enums: ?[]Enum = null,
     methods: ?[]Method = null,
@@ -187,32 +193,32 @@ pub const Class = struct {
     }
 
     pub const Property = struct {
-        type: string,
-        name: string,
-        setter: string = "",
-        getter: string,
-        index: int = -1,
+        type: []const u8,
+        name: []const u8,
+        setter: []const u8 = "",
+        getter: []const u8,
+        index: i64 = -1,
     };
 
     pub const Constant = struct {
-        name: string,
-        value: int,
+        name: []const u8,
+        value: i64,
     };
 
     pub const Enum = struct {
-        name: string,
+        name: []const u8,
         is_bitfield: bool,
         values: []Value,
 
         pub const Value = struct {
-            name: string,
-            value: int,
+            name: []const u8,
+            value: i64,
             description: ?[]const u8 = null,
         };
     };
 
     pub const Method = struct {
-        name: string,
+        name: []const u8,
         is_const: bool,
         is_static: bool,
         is_required: bool = false,
@@ -233,40 +239,29 @@ pub const Class = struct {
         }
 
         pub const Argument = struct {
-            name: string,
-            type: string,
-            meta: string = "",
-            default_value: string = "",
+            name: []const u8,
+            type: []const u8,
+            meta: []const u8 = "",
+            default_value: []const u8 = "",
         };
 
         pub const ReturnValue = struct {
-            type: string,
-            meta: string = "",
-            default_value: string = "",
+            type: []const u8,
+            meta: []const u8 = "",
+            default_value: []const u8 = "",
         };
     };
 };
 
 pub const Singleton = struct {
-    name: string,
-    type: string,
+    name: []const u8,
+    type: []const u8,
 };
 
 pub const NativeStructure = struct {
-    name: string,
-    format: string,
+    name: []const u8,
+    format: []const u8,
 };
-
-header: Header,
-builtin_class_sizes: []BuiltinClassSize,
-builtin_class_member_offsets: []BuiltinClassMemberOffset,
-global_constants: []GlobalConstant,
-global_enums: []GlobalEnum,
-utility_functions: []UtilityFunction,
-builtin_classes: []Builtin,
-classes: []Class,
-singletons: []Singleton,
-native_structures: []NativeStructure,
 
 pub fn findClass(self: @This(), name: []const u8) ?Class {
     for (self.classes) |class| {
@@ -334,3 +329,5 @@ fn findInheritsRecursive(self: @This(), allocator: std.mem.Allocator, class: Cla
         try inherits.append(allocator, .{ .builtinClass = parent });
     }
 }
+
+const std = @import("std");
