@@ -3,7 +3,7 @@ const enums = @import("enums.zig");
 const codegen = @import("codegen.zig");
 const zimdjson = @import("zimdjson");
 
-const GdExtensionApi = @import("extension_api.zig");
+const GdExtensionApi = @import("GdExtensionApi.zig");
 const Mode = enums.Mode;
 
 var outpath: []const u8 = undefined;
