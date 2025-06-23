@@ -597,7 +597,7 @@ fn generateClass(b: *StreamBuilder, class: GodotApi.Class, ctx: *Context) !void 
 
 fn generateClassField(b: *StreamBuilder) !void {
     try b.writeLine(0,
-        \\godot_object: ?*anyopaque
+        \\godot_object: ?*anyopaque,
         \\
     );
 }
