@@ -250,7 +250,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         arg_array = "@ptrCast(&args)";
         arg_count = "args.len";
     } else if (args.items.len > 0) {
-        try code_builder.printLine(1, "var args:[{d}]godot.GDExtensionConstTypePtr = undefined;", .{args.items.len});
+        try code_builder.printLine(1, "var args:[{d}]godot.c.GDExtensionConstTypePtr = undefined;", .{args.items.len});
         for (args.items, arg_types.items, 0..) |arg, arg_type, i| {
             if (isEngineClass(arg_types.items[i], ctx)) {
                 try code_builder.printLine(1, "if(@typeInfo(@TypeOf({1s})) == .@\"struct\") {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr(&{1s})); }}", .{ i, arg });
@@ -293,7 +293,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
                 fn_node.hash,
             });
             if (is_vararg) {
-                try code_builder.writeLine(1, "var err:godot.GDExtensionCallError = undefined;");
+                try code_builder.writeLine(1, "var err:godot.c.GDExtensionCallError = undefined;");
                 if (std.mem.eql(u8, return_type, "Variant")) {
                     try code_builder.printLine(1, "godot.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &result, &err);", .{self_ptr});
                 } else {
@@ -476,7 +476,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
 
                 try vf_builder.writeLine(2, "const MethodBinder = struct {");
 
-                try vf_builder.printLine(3, "pub fn {s}(p_instance: godot.GDExtensionClassInstancePtr, p_args: [*c]const godot.GDExtensionConstTypePtr, p_ret: godot.GDExtensionTypePtr) callconv(.C) void {{", .{
+                try vf_builder.printLine(3, "pub fn {s}(p_instance: godot.c.GDExtensionClassInstancePtr, p_args: [*c]const godot.c.GDExtensionConstTypePtr, p_ret: godot.c.GDExtensionTypePtr) callconv(.C) void {{", .{
                     func_name,
                 });
                 try vf_builder.printLine(4, "const MethodBinder = godot.MethodBinderT(@TypeOf(T.{s}));", .{
@@ -517,7 +517,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
             try generateVirtualMethods(inherits, code_builder, ctx);
         }
 
-        try code_builder.writeLine(0, "pub fn getVirtualDispatch(comptime T:type, p_userdata: ?*anyopaque, p_name: godot.GDExtensionConstStringNamePtr) godot.GDExtensionClassCallVirtual {");
+        try code_builder.writeLine(0, "pub fn getVirtualDispatch(comptime T:type, p_userdata: ?*anyopaque, p_name: godot.c.GDExtensionConstStringNamePtr) godot.c.GDExtensionClassCallVirtual {");
         try code_builder.writeLine(0, vf_builder.getWritten());
         if (class_node.inherits.len > 0) {
             try code_builder.printLine(1, "return godot.{s}.getVirtualDispatch(T, p_userdata, p_name);", .{class_node.inherits});
@@ -543,7 +543,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
                     try code_builder.printLine(0, "pub fn {s}(self: Self) {s} {{", .{ getter_name, member_type });
                     try code_builder.printLine(1, "var result:{s} = undefined;", .{member_type});
 
-                    try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.GDExtensionPtrGetter = null; };");
+                    try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.c.GDExtensionPtrGetter = null; };");
                     try code_builder.writeLine(1, "if( Binding.method == null ) {");
                     try code_builder.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{m.name});
                     try code_builder.printLine(2, "Binding.method = godot.variantGetPtrGetter({s}, @ptrCast(&func_name));", .{enum_type_name});
@@ -563,7 +563,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
 
                     try code_builder.printLine(0, "pub fn {s}(self: *Self, v: {s}) void {{", .{ setter_name, member_type });
 
-                    try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.GDExtensionPtrSetter = null; };");
+                    try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.c.GDExtensionPtrSetter = null; };");
                     try code_builder.writeLine(1, "if( Binding.method == null ) {");
                     try code_builder.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{m.name});
                     try code_builder.printLine(2, "Binding.method = godot.variantGetPtrSetter({s}, @ptrCast(&func_name));", .{enum_type_name});
@@ -749,7 +749,7 @@ fn generateEngineClassField(bc: GdExtensionApi.Class, code_builder: *StreamBuild
 
 fn generateInstanceBindingCallbacks(class_name: []const u8, code_builder: *StreamBuilder) !void {
     const callbacks_code =
-        \\pub var callbacks_{0s} = godot.GDExtensionInstanceBindingCallbacks{{ .create_callback = instanceBindingCreateCallback, .free_callback = instanceBindingFreeCallback, .reference_callback = instanceBindingReferenceCallback }};
+        \\pub var callbacks_{0s} = godot.c.GDExtensionInstanceBindingCallbacks{{ .create_callback = instanceBindingCreateCallback, .free_callback = instanceBindingFreeCallback, .reference_callback = instanceBindingReferenceCallback }};
         \\fn instanceBindingCreateCallback(p_token: ?*anyopaque, p_instance: ?*anyopaque) callconv(.C) ?*anyopaque {{
         \\    _ = p_token;
         \\    var self = @as(*{0s}, @ptrCast(@alignCast(godot.memAlloc(@sizeOf({0s})))));
@@ -763,7 +763,7 @@ fn generateInstanceBindingCallbacks(class_name: []const u8, code_builder: *Strea
         \\    _ = p_instance;
         \\    _ = p_token;
         \\}}
-        \\fn instanceBindingReferenceCallback(p_token: ?*anyopaque, p_binding: ?*anyopaque, p_reference: godot.GDExtensionBool) callconv(.C) godot.GDExtensionBool {{
+        \\fn instanceBindingReferenceCallback(p_token: ?*anyopaque, p_binding: ?*anyopaque, p_reference: godot.c.GDExtensionBool) callconv(.C) godot.c.GDExtensionBool {{
         \\    _ = p_reference;
         \\    _ = p_binding;
         \\    _ = p_token;
@@ -853,12 +853,12 @@ fn generateGodotCore(config: CodegenConfig, ctx: *CodegenContext) !void {
         }
     }
 
-    try code_builder.writeLine(0, "pub var p_library: godot.GDExtensionClassLibraryPtr = null;");
-    try loader_builder.writeLine(0, "pub fn initCore(getProcAddress:std.meta.Child(godot.GDExtensionInterfaceGetProcAddress), library: godot.GDExtensionClassLibraryPtr) !void {");
+    try code_builder.writeLine(0, "pub var p_library: godot.c.GDExtensionClassLibraryPtr = null;");
+    try loader_builder.writeLine(0, "pub fn initCore(getProcAddress:std.meta.Child(godot.c.GDExtensionInterfaceGetProcAddress), library: godot.c.GDExtensionClassLibraryPtr) !void {");
     try loader_builder.writeLine(1, "p_library = library;");
 
     const callback_decl_code =
-        \\const BindingCallbackMap = std.AutoHashMap(StringName, *godot.GDExtensionInstanceBindingCallbacks);
+        \\const BindingCallbackMap = std.AutoHashMap(StringName, *godot.c.GDExtensionInstanceBindingCallbacks);
     ;
     try code_builder.writeLine(0, callback_decl_code);
 
@@ -880,7 +880,7 @@ fn generateGodotCore(config: CodegenConfig, ctx: *CodegenContext) !void {
 
             res[0] = std.ascii.toLower(res[0]);
             try code_builder.write(0, fn_docs);
-            try code_builder.printLine(0, "pub var {s}:std.meta.Child(godot.{s}) = undefined;", .{ res, decl.name });
+            try code_builder.printLine(0, "pub var {s}:std.meta.Child(godot.c.{s}) = undefined;", .{ res, decl.name });
             try loader_builder.printLine(1, "{s} = @ptrCast(getProcAddress(\"{s}\"));", .{ res, fn_name });
         }
     }
@@ -991,7 +991,7 @@ fn getEnumName(type_name: string) string {
 fn getVariantTypeName(class_name: string, ctx: *CodegenContext) string {
     var buf: [256]u8 = undefined;
     const nnn = toSnakeCase(class_name, &buf);
-    return std.fmt.allocPrint(ctx.allocator, "godot.GDEXTENSION_VARIANT_TYPE_{s}", .{std.ascii.upperString(&buf, nnn)}) catch unreachable;
+    return std.fmt.allocPrint(ctx.allocator, "godot.c.GDEXTENSION_VARIANT_TYPE_{s}", .{std.ascii.upperString(&buf, nnn)}) catch unreachable;
 }
 
 fn addDependType(type_name: string, ctx: *CodegenContext) !void {

@@ -77,8 +77,8 @@ const OP_NOT: c_int = 23;
 const OP_IN: c_int = 24;
 const OP_MAX: c_int = 25;
 
-var from_type: [@as(usize, godot.GDEXTENSION_VARIANT_TYPE_VARIANT_MAX)]godot.GDExtensionVariantFromTypeConstructorFunc = undefined;
-var to_type: [@as(usize, godot.GDEXTENSION_VARIANT_TYPE_VARIANT_MAX)]godot.GDExtensionTypeFromVariantConstructorFunc = undefined;
+var from_type: [@as(usize, godot.c.GDEXTENSION_VARIANT_TYPE_VARIANT_MAX)]godot.c.GDExtensionVariantFromTypeConstructorFunc = undefined;
+var to_type: [@as(usize, godot.c.GDEXTENSION_VARIANT_TYPE_VARIANT_MAX)]godot.c.GDExtensionTypeFromVariantConstructorFunc = undefined;
 
 pub fn initBindings() void {
     for (1..TYPE_MAX) |i| {

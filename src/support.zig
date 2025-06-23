@@ -35,28 +35,28 @@ pub inline fn bindMethod(
     return Binding.method.?;
 }
 
-pub inline fn bindMethodUtilityFunction(comptime name: []const u8, comptime hash: comptime_int) godot.GDExtensionPtrUtilityFunction {
+pub inline fn bindMethodUtilityFunction(comptime name: []const u8, comptime hash: comptime_int) godot.c.GDExtensionPtrUtilityFunction {
     const S = struct {
-        fn init(string_name: ?godot.StringName) godot.GDExtensionPtrUtilityFunction {
+        fn init(string_name: ?godot.StringName) godot.c.GDExtensionPtrUtilityFunction {
             return godot.variantGetPtrUtilityFunction(@ptrCast(@constCast(&string_name.?)), hash);
         }
     };
 
-    return bindMethod(godot.GDExtensionPtrUtilityFunction, name, S);
+    return bindMethod(godot.c.GDExtensionPtrUtilityFunction, name, S);
 }
 
-pub inline fn bindEngineClassMethod(comptime ClassType: type, comptime name: []const u8, hash: comptime_int) godot.GDExtensionMethodBindPtr {
+pub inline fn bindEngineClassMethod(comptime ClassType: type, comptime name: []const u8, hash: comptime_int) godot.c.GDExtensionMethodBindPtr {
     const S = struct {
-        pub fn init(string_name: ?godot.StringName) godot.GDExtensionMethodBindPtr {
+        pub fn init(string_name: ?godot.StringName) godot.c.GDExtensionMethodBindPtr {
             const class_name = godot.getClassName(ClassType);
             return godot.classdbGetMethodBind(@ptrCast(class_name), @ptrCast(@constCast(&string_name.?)), hash);
         }
     };
 
-    return bindMethod(godot.GDExtensionMethodBindPtr, name, S);
+    return bindMethod(godot.c.GDExtensionMethodBindPtr, name, S);
 }
 
-const ConstructorMethod = @typeInfo(godot.GDExtensionPtrConstructor).optional.child;
+const ConstructorMethod = @typeInfo(godot.c.GDExtensionPtrConstructor).optional.child;
 
 pub inline fn bindConstructorMethod(variant_type: comptime_int, index: comptime_int) ConstructorMethod {
     const S = struct {
@@ -68,7 +68,7 @@ pub inline fn bindConstructorMethod(variant_type: comptime_int, index: comptime_
     return bindMethod(ConstructorMethod, null, S);
 }
 
-const BuiltInClassMethod = @typeInfo(godot.GDExtensionPtrBuiltInMethod).optional.child;
+const BuiltInClassMethod = @typeInfo(godot.c.GDExtensionPtrBuiltInMethod).optional.child;
 
 pub inline fn bindBuiltinClassMethod(variant_type: ?comptime_int, comptime name: []const u8, hash: comptime_int) BuiltInClassMethod {
     const S = struct {
@@ -84,7 +84,7 @@ pub inline fn bindBuiltinClassMethod(variant_type: ?comptime_int, comptime name:
     return bindMethod(BuiltInClassMethod, name, S);
 }
 
-const DestructorMethod = @typeInfo(godot.GDExtensionPtrDestructor).optional.child;
+const DestructorMethod = @typeInfo(godot.c.GDExtensionPtrDestructor).optional.child;
 
 pub inline fn bindDestructorMethod(variant_type: comptime_int) DestructorMethod {
     const S = struct {

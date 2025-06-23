@@ -22,7 +22,6 @@ const godot = @import("godot");
 const Vec2 = godot.Vector2;
 const Self = @This();
 const Base = godot.Control;
-pub usingnamespace Base;
 base: Base,
 
 sprite: godot.Sprite2D,
@@ -31,13 +30,13 @@ pub fn _enter_tree(self: *Self) void {
     if (godot.Engine.getSingleton().isEditorHint()) return;
 
     var normal_btn = godot.initButton();
-    self.add_child(normal_btn, false, godot.Node.INTERNAL_MODE_DISABLED);
+    self.base.add_child(normal_btn, false, godot.Node.INTERNAL_MODE_DISABLED);
     normal_btn.setPosition(Vec2.new(100, 20), false);
     normal_btn.setSize(Vec2.new(100, 50), false);
     normal_btn.setText("Press Me");
 
     var toggle_btn = godot.initCheckBox();
-    self.add_child(toggle_btn, false, godot.Node.INTERNAL_MODE_DISABLED);
+    self.base.add_child(toggle_btn, false, godot.Node.INTERNAL_MODE_DISABLED);
     toggle_btn.setPosition(Vec2.new(320, 20), false);
     toggle_btn.setSize(Vec2.new(100, 50), false);
     toggle_btn.setText("Toggle Me");
@@ -54,7 +53,7 @@ pub fn _enter_tree(self: *Self) void {
         self.sprite.setTexture(tex);
         self.sprite.setPosition(Vec2.new(400, 300));
         self.sprite.setScale(Vec2.new(0.6, 0.6));
-        self.addChild(self.sprite, false, godot.Node.INTERNAL_MODE_DISABLED);
+        self.base.addChild(self.sprite, false, godot.Node.INTERNAL_MODE_DISABLED);
     }
 }
 
