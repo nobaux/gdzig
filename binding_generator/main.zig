@@ -1,7 +1,3 @@
-var outpath: []const u8 = undefined;
-var mode: Mode = .quiet;
-var cwd: std.fs.Dir = undefined;
-
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -16,50 +12,54 @@ pub fn main() !void {
         return;
     }
 
-    outpath = args[2];
-    mode = std.meta.stringToEnum(Mode, args[5]) orelse mode;
+    // Assemble the bindgen configuration
+    var config: Config = blk: {
+        const cwd = std.fs.cwd();
 
-    cwd = std.fs.cwd();
+        var vendor = try cwd.openDir(args[1], .{});
+        defer vendor.close();
 
-    const gdextension_h_path = try std.fs.path.resolve(allocator, &.{ args[1], "gdextension_interface.h" });
-    const extension_api_json_path = try std.fs.path.resolve(allocator, &.{ args[1], "extension_api.json" });
+        try cwd.deleteTree(args[2]);
 
-    const extension_api_json_file = try cwd.openFile(extension_api_json_path, .{});
-    defer extension_api_json_file.close();
+        const build_target = try std.fmt.allocPrint(allocator, "{s}_{s}", .{ args[3], args[4] });
+        const extension_api = try vendor.openFile("extension_api.json", .{});
+        const gdextension_interface = try vendor.openFile("gdextension_interface.h", .{});
+        const output = try std.fs.cwd().makeOpenPath(args[2], .{});
+        const verbosity = std.meta.stringToEnum(Config.Verbosity, args[5]) orelse .quiet;
 
+        break :blk .{
+            .build_target = build_target,
+            .extension_api = extension_api,
+            .gdextension_interface = gdextension_interface,
+            .output = output,
+            .verbosity = verbosity,
+        };
+    };
+    defer config.deinit(allocator);
+
+    // Parse the extension_api.json
     var parser = zimdjson.ondemand.FullParser(.default).init;
     defer parser.deinit(allocator);
+    var document = try parser.parseFromReader(allocator, config.extension_api.reader().any());
+    const godot_api = try document.asLeaky(GodotApi, allocator, .{});
 
-    var document = try parser.parseFromReader(allocator, extension_api_json_file.reader().any());
+    // Build the codegen context
+    var ctx = try Context.build(allocator, godot_api, config);
 
-    const gdapi = try document.asLeaky(GodotApi, allocator, .{});
-
-    try cwd.deleteTree(outpath);
-    try cwd.makePath(outpath);
-
-    const conf = try std.fmt.allocPrint(allocator, "{s}_{s}", .{ args[3], args[4] });
-    defer allocator.free(conf);
-
-    const config = CodegenConfig{
-        .conf = conf,
-        .gdextension_h_path = gdextension_h_path,
-        .mode = mode,
-        .output = outpath,
-    };
-
-    var ctx = try Context.build(allocator, gdapi, config);
-
+    // Generate the code
     try codegen.generate(&ctx);
 
+    // Format the code
     _ = try std.process.Child.run(.{
         .allocator = allocator,
-        .argv = &.{ "zig", "fmt", outpath },
+        .cwd_dir = config.output,
+        .argv = &.{ "zig", "fmt" },
         .max_output_bytes = 1024 * 1024,
     });
 
-    if (mode == .verbose) {
-        std.debug.print("Output path: {s}\n", .{outpath});
-        std.debug.print("API JSON: {s}\n", .{extension_api_json_path});
+    if (config.verbosity == .verbose) {
+        std.debug.print("Output path: {s}\n", .{args[2]});
+        std.debug.print("API JSON: {s}/extension_api.json\n", .{args[1]});
     }
 }
 
@@ -68,8 +68,6 @@ const std = @import("std");
 const zimdjson = @import("zimdjson");
 
 const codegen = @import("codegen.zig");
-const CodegenConfig = @import("types.zig").CodegenConfig;
+const Config = @import("Config.zig");
 const Context = @import("Context.zig");
-const enums = @import("enums.zig");
-const Mode = enums.Mode;
 const GodotApi = @import("GodotApi.zig");

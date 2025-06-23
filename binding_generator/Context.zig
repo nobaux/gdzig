@@ -2,7 +2,7 @@ pub const Context = @This();
 
 allocator: Allocator,
 api: GodotApi,
-config: CodegenConfig,
+config: Config,
 
 all_classes: ArrayList([]const u8) = .empty,
 all_engine_classes: ArrayList([]const u8) = .empty,
@@ -42,7 +42,7 @@ pub fn deinit(self: *Context) void {
     self.singletons.deinit(self.allocator);
 }
 
-pub fn build(allocator: Allocator, api: GodotApi, config: CodegenConfig) !Context {
+pub fn build(allocator: Allocator, api: GodotApi, config: Config) !Context {
     var self = Context{
         .allocator = allocator,
         .api = api,
@@ -74,7 +74,7 @@ fn parseEngineClasses(self: *Context) !void {
 
 fn parseClassSizes(self: *Context) !void {
     for (self.api.builtin_class_sizes) |bcs| {
-        if (!std.mem.eql(u8, bcs.build_configuration, self.config.conf)) {
+        if (!std.mem.eql(u8, bcs.build_configuration, self.config.build_target)) {
             continue;
         }
 
@@ -91,8 +91,7 @@ fn parseSingletons(self: *Context) !void {
 }
 
 fn parseGdExtensionHeaders(self: *Context) !void {
-    const header_file = try std.fs.openFileAbsolute(self.config.gdextension_h_path, .{});
-    var buffered_reader = std.io.bufferedReader(header_file.reader());
+    var buffered_reader = std.io.bufferedReader(self.config.gdextension_interface.reader());
     const reader = buffered_reader.reader();
 
     const name_doc = "@name";
@@ -329,4 +328,4 @@ const case = @import("case");
 const GodotApi = @import("GodotApi.zig");
 const util = @import("util.zig");
 
-const CodegenConfig = @import("types.zig").CodegenConfig;
+const Config = @import("Config.zig");

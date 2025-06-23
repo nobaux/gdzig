@@ -1,5 +1,4 @@
 const std = @import("std");
-const types = @import("types.zig");
 
 pub fn StreamBuilder(comptime T: type) type {
     return struct {
@@ -8,7 +7,7 @@ pub fn StreamBuilder(comptime T: type) type {
 
         const Self = @This();
 
-        pub const ident_width = types.ident_width;
+        pub const indent_width = 4;
 
         list: List,
         allocator: std.mem.Allocator,
@@ -51,7 +50,7 @@ pub fn StreamBuilder(comptime T: type) type {
 
         pub fn print(self: *Self, indent_level: u8, comptime line: []const u8, args: anytype) !void {
             self.last_write_pos = self.list.items.len;
-            for (0..indent_level * ident_width) |_| {
+            for (0..indent_level * indent_width) |_| {
                 try self.writer().writeAll(" ");
             }
             try self.writer().print(line, args);
@@ -64,7 +63,7 @@ pub fn StreamBuilder(comptime T: type) type {
 
         pub fn write(self: *Self, indent_level: u8, line: []const u8) !void {
             self.last_write_pos = self.list.items.len;
-            for (0..indent_level * ident_width) |_| {
+            for (0..indent_level * indent_width) |_| {
                 try self.writer().writeAll(" ");
             }
             try self.writer().writeAll(line);
