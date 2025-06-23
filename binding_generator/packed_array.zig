@@ -23,7 +23,7 @@ const PackedArrayType = enum {
 
 pub const regex = mzvr.compile("^Packed([a-zA-Z0-9])+Array$") orelse @compileError("Failed to compile regex");
 
-pub fn generate(class: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
+pub fn generate(class: GdExtensionApi.Builtin, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
     _ = config;
 
     try code_builder.printLine(1, "value: [{d}]u8,", .{ctx.getClassSize(class.name).?});

@@ -337,7 +337,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
     try code_builder.writeLine(0, "}");
 }
 
-pub fn generateConstructor(class_node: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
     const class_name = correctName(class_node.name, ctx);
 
     const string_class_extra_constructors_code =
@@ -445,7 +445,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
     const class_name = correctName(class_node.name, ctx);
     const enum_type_name = getVariantTypeName(class_name, ctx);
 
-    const is_builtin_class = @TypeOf(class_node) == GdExtensionApi.BuiltinClass;
+    const is_builtin_class = @TypeOf(class_node) == GdExtensionApi.Builtin;
     const proc_type = if (is_builtin_class) ProcType.BuiltinClassMethod else ProcType.EngineClassMethod;
 
     var vf_builder = StreamBuilder.init(ctx.allocator);
@@ -631,7 +631,7 @@ fn parseEngineClasses(api: GdExtensionApi, ctx: *CodegenContext) !void {
     }
 }
 
-fn getArgumentsTypes(fn_node: GdExtensionApi.Constructor, buf: []u8, ctx: *CodegenContext) string {
+fn getArgumentsTypes(fn_node: GdExtensionApi.Builtin.Constructor, buf: []u8, ctx: *CodegenContext) string {
     var pos: usize = 0;
     if (@hasField(@TypeOf(fn_node), "arguments")) {
         if (fn_node.arguments) |as| {
@@ -691,7 +691,7 @@ fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder,
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
 }
 
-pub fn generateBuiltinClassMethods(bc: GdExtensionApi.BuiltinClass, class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+pub fn generateBuiltinClassMethods(bc: GdExtensionApi.Builtin, class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
     var generated_method_map: types.StringVoidMap = .empty;
     defer generated_method_map.deinit(ctx.allocator);
 
@@ -708,7 +708,7 @@ fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, 
     try generateMethods(bc, code_builder, &generated_method_map, ctx);
 }
 
-fn generateBuiltinClass(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
+fn generateBuiltinClass(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
     const class_name = bc.name;
 
     if (shouldSkipClass(class_name)) {
@@ -732,7 +732,7 @@ fn generateBuiltinClass(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBu
     try finalizeClassGeneration(class_name, code_builder, config, ctx);
 }
 
-fn isPackedArray(bc: GdExtensionApi.BuiltinClass) bool {
+fn isPackedArray(bc: GdExtensionApi.Builtin) bool {
     return packed_array.regex.isMatch(bc.name);
 }
 
@@ -1131,7 +1131,7 @@ fn shouldSkipClass(class_name: []const u8) bool {
         native_type_map.has(class_name);
 }
 
-fn generateBuiltinEnums(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder) !void {
+fn generateBuiltinEnums(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder) !void {
     if (bc.enums) |es| {
         for (es) |e| {
             try code_builder.printLine(0, "pub const {s} = c_int;", .{e.name});
@@ -1153,7 +1153,7 @@ fn generateEngineEnums(bc: GdExtensionApi.Class, code_builder: *StreamBuilder) !
     }
 }
 
-fn generateBuiltinConstants(bc: GdExtensionApi.BuiltinClass, code_builder: *StreamBuilder) !void {
+fn generateBuiltinConstants(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder) !void {
     _ = code_builder; // TODO: implement builtin constants generation
     if (bc.constants) |cs| {
         for (cs) |c| {
