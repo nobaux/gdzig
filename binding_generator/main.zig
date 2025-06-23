@@ -1,11 +1,3 @@
-const std = @import("std");
-const enums = @import("enums.zig");
-const codegen = @import("codegen.zig");
-const zimdjson = @import("zimdjson");
-
-const GdExtensionApi = @import("GdExtensionApi.zig");
-const Mode = enums.Mode;
-
 var outpath: []const u8 = undefined;
 var mode: Mode = .quiet;
 var cwd: std.fs.Dir = undefined;
@@ -40,7 +32,7 @@ pub fn main() !void {
 
     var document = try parser.parseFromReader(allocator, extension_api_json_file.reader().any());
 
-    const gdapi = try document.asLeaky(GdExtensionApi, allocator, .{});
+    const gdapi = try document.asLeaky(GodotApi, allocator, .{});
 
     try cwd.deleteTree(outpath);
     try cwd.makePath(outpath);
@@ -48,12 +40,16 @@ pub fn main() !void {
     const conf = try std.fmt.allocPrint(allocator, "{s}_{s}", .{ args[3], args[4] });
     defer allocator.free(conf);
 
-    try codegen.generate(allocator, gdapi, .{
+    const config = CodegenConfig{
         .conf = conf,
         .gdextension_h_path = gdextension_h_path,
         .mode = mode,
         .output = outpath,
-    });
+    };
+
+    var ctx = try Context.build(allocator, gdapi, config);
+
+    try codegen.generate(&ctx);
 
     _ = try std.process.Child.run(.{
         .allocator = allocator,
@@ -66,3 +62,14 @@ pub fn main() !void {
         std.debug.print("API JSON: {s}\n", .{extension_api_json_path});
     }
 }
+
+const std = @import("std");
+
+const zimdjson = @import("zimdjson");
+
+const codegen = @import("codegen.zig");
+const CodegenConfig = @import("types.zig").CodegenConfig;
+const Context = @import("Context.zig");
+const enums = @import("enums.zig");
+const Mode = enums.Mode;
+const GodotApi = @import("GodotApi.zig");

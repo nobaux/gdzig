@@ -288,7 +288,7 @@ pub const GdMethod = union(enum) {
     builtin: Builtin.Method,
 };
 
-pub const GdClass = union(enum) {
+pub const Type = union(enum) {
     class: Class,
     builtin: Builtin,
 
@@ -299,13 +299,13 @@ pub const GdClass = union(enum) {
     }
 };
 
-pub fn findInherits(self: @This(), allocator: std.mem.Allocator, class: Class) !std.ArrayListUnmanaged(GdClass) {
-    var inherits: std.ArrayListUnmanaged(GdClass) = .empty;
+pub fn findInherits(self: @This(), allocator: std.mem.Allocator, class: Class) !std.ArrayListUnmanaged(Type) {
+    var inherits: std.ArrayListUnmanaged(Type) = .empty;
     try self.findInheritsRecursive(allocator, class, &inherits);
     return inherits;
 }
 
-fn findInheritsRecursive(self: @This(), allocator: std.mem.Allocator, class: Class, inherits: *std.ArrayListUnmanaged(GdClass)) !void {
+fn findInheritsRecursive(self: @This(), allocator: std.mem.Allocator, class: Class, inherits: *std.ArrayListUnmanaged(Type)) !void {
     if (class.inherits.len == 0) {
         return;
     }

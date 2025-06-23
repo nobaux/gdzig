@@ -1,7 +1,7 @@
 pub const ProcType = enum {
     UtilityFunction,
-    BuiltinClassMethod,
-    EngineClassMethod,
+    BuiltinMethod,
+    ClassMethod,
     Constructor,
     Destructor,
 };

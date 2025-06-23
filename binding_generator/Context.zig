@@ -1,7 +1,8 @@
 pub const Context = @This();
 
 allocator: Allocator,
-api: GdExtensionApi,
+api: GodotApi,
+config: CodegenConfig,
 
 all_classes: ArrayList([]const u8) = .empty,
 all_engine_classes: ArrayList([]const u8) = .empty,
@@ -41,15 +42,16 @@ pub fn deinit(self: *Context) void {
     self.singletons.deinit(self.allocator);
 }
 
-pub fn build(allocator: Allocator, api: GdExtensionApi, config: CodegenConfig) !Context {
+pub fn build(allocator: Allocator, api: GodotApi, config: CodegenConfig) !Context {
     var self = Context{
         .allocator = allocator,
         .api = api,
+        .config = config,
     };
 
-    try self.parseGdExtensionHeaders(config);
-    try self.parseClassSizes(config);
-    try self.parseSingletons(config);
+    try self.parseGdExtensionHeaders();
+    try self.parseClassSizes();
+    try self.parseSingletons();
     try self.parseEngineClasses();
 
     return self;
@@ -70,9 +72,9 @@ fn parseEngineClasses(self: *Context) !void {
     }
 }
 
-fn parseClassSizes(self: *Context, config: CodegenConfig) !void {
+fn parseClassSizes(self: *Context) !void {
     for (self.api.builtin_class_sizes) |bcs| {
-        if (!std.mem.eql(u8, bcs.build_configuration, config.conf)) {
+        if (!std.mem.eql(u8, bcs.build_configuration, self.config.conf)) {
             continue;
         }
 
@@ -82,15 +84,14 @@ fn parseClassSizes(self: *Context, config: CodegenConfig) !void {
     }
 }
 
-fn parseSingletons(self: *Context, config: CodegenConfig) !void {
-    _ = config;
+fn parseSingletons(self: *Context) !void {
     for (self.api.singletons) |sg| {
         try self.singletons.put(self.allocator, sg.name, sg.type);
     }
 }
 
-fn parseGdExtensionHeaders(self: *Context, config: CodegenConfig) !void {
-    const header_file = try std.fs.openFileAbsolute(config.gdextension_h_path, .{});
+fn parseGdExtensionHeaders(self: *Context) !void {
+    const header_file = try std.fs.openFileAbsolute(self.config.gdextension_h_path, .{});
     var buffered_reader = std.io.bufferedReader(header_file.reader());
     const reader = buffered_reader.reader();
 
@@ -256,7 +257,7 @@ pub fn correctType(self: *Context, type_name: []const u8, meta: []const u8) []co
     return correct_type;
 }
 
-pub fn getArgumentsTypes(ctx: *Context, fn_node: GdExtensionApi.Builtin.Constructor, buf: []u8) []const u8 {
+pub fn getArgumentsTypes(ctx: *Context, fn_node: GodotApi.Builtin.Constructor, buf: []u8) []const u8 {
     var pos: usize = 0;
     if (@hasField(@TypeOf(fn_node), "arguments")) {
         if (fn_node.arguments) |as| {
@@ -278,7 +279,7 @@ pub fn getArgumentsTypes(ctx: *Context, fn_node: GdExtensionApi.Builtin.Construc
     return buf[0..pos];
 }
 
-pub fn getReturnType(self: *Context, method: GdExtensionApi.GdMethod) []const u8 {
+pub fn getReturnType(self: *Context, method: GodotApi.GdMethod) []const u8 {
     return switch (method) {
         .builtin => |bc| self.correctType(bc.return_type, ""),
         .class => |cls| if (cls.return_value) |ret| self.correctType(ret.type, ret.meta) else "void",
@@ -325,7 +326,7 @@ const StringHashMap = std.StringHashMapUnmanaged;
 
 const case = @import("case");
 
-const GdExtensionApi = @import("GdExtensionApi.zig");
+const GodotApi = @import("GodotApi.zig");
 const util = @import("util.zig");
 
 const CodegenConfig = @import("types.zig").CodegenConfig;

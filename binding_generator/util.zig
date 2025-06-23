@@ -48,7 +48,7 @@ pub fn isStringType(type_name: []const u8) bool {
     return std.mem.eql(u8, type_name, "String") or std.mem.eql(u8, type_name, "StringName");
 }
 
-pub fn isPackedArray(bc: GdExtensionApi.Builtin) bool {
+pub fn isPackedArray(bc: GodotApi.Builtin) bool {
     return packed_array.regex.isMatch(bc.name);
 }
 
@@ -84,5 +84,5 @@ pub fn shouldSkipClass(class_name: []const u8) bool {
 
 const std = @import("std");
 
-const GdExtensionApi = @import("GdExtensionApi.zig");
+const GodotApi = @import("GodotApi.zig");
 const packed_array = @import("packed_array.zig");
