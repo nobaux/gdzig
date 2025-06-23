@@ -13,29 +13,8 @@ pub fn main() !void {
     }
 
     // Assemble the bindgen configuration
-    var config: Config = blk: {
-        const cwd = std.fs.cwd();
-
-        var vendor = try cwd.openDir(args[1], .{});
-        defer vendor.close();
-
-        try cwd.deleteTree(args[2]);
-
-        const build_target = try std.fmt.allocPrint(allocator, "{s}_{s}", .{ args[3], args[4] });
-        const extension_api = try vendor.openFile("extension_api.json", .{});
-        const gdextension_interface = try vendor.openFile("gdextension_interface.h", .{});
-        const output = try std.fs.cwd().makeOpenPath(args[2], .{});
-        const verbosity = std.meta.stringToEnum(Config.Verbosity, args[5]) orelse .quiet;
-
-        break :blk .{
-            .build_target = build_target,
-            .extension_api = extension_api,
-            .gdextension_interface = gdextension_interface,
-            .output = output,
-            .verbosity = verbosity,
-        };
-    };
-    defer config.deinit(allocator);
+    var config = try Config.loadFromArgs(args);
+    defer config.deinit();
 
     // Parse the extension_api.json
     var parser = zimdjson.ondemand.FullParser(.default).init;

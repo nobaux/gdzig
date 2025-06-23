@@ -74,7 +74,7 @@ fn parseEngineClasses(self: *Context) !void {
 
 fn parseClassSizes(self: *Context) !void {
     for (self.api.builtin_class_sizes) |bcs| {
-        if (!std.mem.eql(u8, bcs.build_configuration, self.config.build_target)) {
+        if (!std.mem.eql(u8, bcs.build_configuration, self.config.buildConfiguration())) {
             continue;
         }
 
