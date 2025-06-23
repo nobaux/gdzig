@@ -273,7 +273,7 @@ pub fn findClass(self: @This(), name: []const u8) ?Class {
     return null;
 }
 
-pub fn findBuiltinClass(self: @This(), name: []const u8) ?Builtin {
+pub fn findBuiltin(self: @This(), name: []const u8) ?Builtin {
     for (self.builtin_classes) |class| {
         if (std.mem.eql(u8, class.name, name)) {
             return class;
