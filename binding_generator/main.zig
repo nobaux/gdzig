@@ -13,30 +13,7 @@ pub fn main() !void {
     }
 
     // Assemble the bindgen configuration
-    var config: Config = blk: {
-        const cwd = std.fs.cwd();
-
-        var vendor = try cwd.openDir(args[1], .{});
-        defer vendor.close();
-
-        try cwd.deleteTree(args[2]);
-
-        const arch = std.meta.stringToEnum(Config.Arch, args[3]) orelse std.debug.panic("Invalid architecture {s}, expected {any}", .{ args[3], std.meta.tags(Config.Arch) });
-        const precision = std.meta.stringToEnum(Config.Precision, args[4]) orelse std.debug.panic("Invalid precision {s}, expected {any}", .{ args[3], std.meta.tags(Config.Precision) });
-        const extension_api = try vendor.openFile("extension_api.json", .{});
-        const gdextension_interface = try vendor.openFile("gdextension_interface.h", .{});
-        const output = try std.fs.cwd().makeOpenPath(args[2], .{});
-        const verbosity = std.meta.stringToEnum(Config.Verbosity, args[5]) orelse .quiet;
-
-        break :blk .{
-            .arch = arch,
-            .extension_api = extension_api,
-            .gdextension_interface = gdextension_interface,
-            .output = output,
-            .precision = precision,
-            .verbosity = verbosity,
-        };
-    };
+    var config = try Config.loadFromArgs(args);
     defer config.deinit();
 
     // Parse the extension_api.json
