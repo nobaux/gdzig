@@ -6,6 +6,8 @@ gen
 project/lib/
 **/.godot/**
 **/*.import
+**/.direnv
 
 !**/.godot/extension_list.cfg
 !**/.godot/global_script_class_cache.cfg
+
