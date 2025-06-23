@@ -17,26 +17,22 @@ see [Examples](https://github.com/doubleword-labs/godot-zig-examples) for refere
 ## Code Sample:
 
 ```zig
-const std = @import("std");
-const godot = @import("godot");
-const Vec2 = godot.Vector2;
 const Self = @This();
-const Base = godot.Control;
-base: Base,
 
-sprite: godot.Sprite2D,
+base: Base,
+sprite: Sprite2D,
 
 pub fn _enter_tree(self: *Self) void {
-    if (godot.Engine.getSingleton().isEditorHint()) return;
+    if (Engine.getSingleton().isEditorHint()) return;
 
-    var normal_btn = godot.initButton();
-    self.base.add_child(normal_btn, false, godot.Node.INTERNAL_MODE_DISABLED);
+    var normal_btn = Button.init();
+    self.base.add_child(normal_btn, false, Node.INTERNAL_MODE_DISABLED);
     normal_btn.setPosition(Vec2.new(100, 20), false);
     normal_btn.setSize(Vec2.new(100, 50), false);
     normal_btn.setText("Press Me");
 
-    var toggle_btn = godot.initCheckBox();
-    self.base.add_child(toggle_btn, false, godot.Node.INTERNAL_MODE_DISABLED);
+    var toggle_btn = CheckBox.init();
+    self.base.add_child(toggle_btn, false, Node.INTERNAL_MODE_DISABLED);
     toggle_btn.setPosition(Vec2.new(320, 20), false);
     toggle_btn.setSize(Vec2.new(100, 50), false);
     toggle_btn.setText("Toggle Me");
@@ -44,16 +40,16 @@ pub fn _enter_tree(self: *Self) void {
     godot.connect(toggle_btn, "toggled", self, "on_toggled");
     godot.connect(normal_btn, "pressed", self, "on_pressed");
 
-    const resource_loader = godot.ResourceLoader.getSingleton();
-    const res_name = godot.String.initFromLatin1Chars("res://textures/logo.png");
-    const texture = resource_loader.load(res_name, "", godot.ResourceLoader.CACHE_MODE_REUSE);
+    const resource_loader = ResourceLoader.getSingleton();
+    const res_name = String.initFromLatin1Chars("res://textures/logo.png");
+    const texture = resource_loader.load(res_name, "", ResourceLoader.CACHE_MODE_REUSE);
     if (texture) |tex| {
         defer _ = godot.unreference(tex);
-        self.sprite = godot.initSprite2D();
+        self.sprite = Sprite2D.init();
         self.sprite.setTexture(tex);
         self.sprite.setPosition(Vec2.new(400, 300));
         self.sprite.setScale(Vec2.new(0.6, 0.6));
-        self.base.addChild(self.sprite, false, godot.Node.INTERNAL_MODE_DISABLED);
+        self.base.addChild(self.sprite, false, Node.INTERNAL_MODE_DISABLED);
     }
 }
 
@@ -70,4 +66,16 @@ pub fn on_toggled(self: *Self, toggled_on: bool) void {
     _ = self;
     std.debug.print("on_toggled {any}\n", .{toggled_on});
 }
+
+const std = @import("std");
+const godot = @import("godot");
+const Base = godot.core.Control;
+const Button = godot.core.Button;
+const CheckBox = godot.core.CheckBox;
+const Engine = godot.core.Engine;
+const ResourceLoader = godot.core.ResourceLoader;
+const Node = godot.core.Node
+const Sprite2D = godot.core.Sprite2D;
+const String = godot.core.String;
+const Vec2 = godot.core.Vector2;
 ```
