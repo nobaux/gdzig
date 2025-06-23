@@ -1,18 +1,19 @@
 const std = @import("std");
+const Allocator = std.mem.Allocator;
+
 const case = @import("case");
-const types = @import("types.zig");
-const enums = @import("enums.zig");
-const packed_array = @import("packed_array.zig");
 const gdextension = @import("gdextension");
 
-const Allocator = std.mem.Allocator;
-const GdExtensionApi = @import("GdExtensionApi.zig");
-const string = []const u8;
-const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
-const CodegenConfig = types.CodegenConfig;
-const CodegenContext = types.CodegenContext;
+const Context = @import("Context.zig");
+const enums = @import("enums.zig");
 const ProcType = enums.ProcType;
+const GdExtensionApi = @import("GdExtensionApi.zig");
+const packed_array = @import("packed_array.zig");
+const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
+const types = @import("types.zig");
+const CodegenConfig = types.CodegenConfig;
 
+const string = []const u8;
 const keywords = std.StaticStringMap(void).initComptime(.{
     .{"addrspace"},
     .{"align"},
@@ -106,7 +107,7 @@ const native_type_map = std.StaticStringMap(void).initComptime(.{
 const func_case: case.Case = .camel;
 
 pub fn generate(allocator: Allocator, gdapi: GdExtensionApi, config: CodegenConfig) !void {
-    var ctx = try CodegenContext.init(allocator, gdapi);
+    var ctx = Context{ .allocator = allocator, .api = gdapi };
     defer ctx.deinit();
 
     try parseGdExtensionHeaders(config, &ctx);
@@ -120,7 +121,7 @@ pub fn generate(allocator: Allocator, gdapi: GdExtensionApi, config: CodegenConf
     try generateGodotCore(config, &ctx);
 }
 
-pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: string, func_name: string, return_type_orig: string, comptime proc_type: ProcType, ctx: *CodegenContext) !void {
+pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: string, func_name: string, return_type_orig: string, comptime proc_type: ProcType, ctx: *Context) !void {
     const zig_func_name = getZigFuncName(func_name, ctx);
 
     const return_type: string = blk: {
@@ -337,7 +338,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
     try code_builder.writeLine(0, "}");
 }
 
-pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *StreamBuilder, ctx: *Context) !void {
     const class_name = correctName(class_node.name, ctx);
 
     const string_class_extra_constructors_code =
@@ -404,7 +405,7 @@ pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *St
     }
 }
 
-pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: *StreamBuilder, ctx: *Context) !void {
     const class_name = try std.fmt.allocPrint(ctx.allocator, "godot.core.{s}", .{class_node.getClassName()});
     defer ctx.allocator.free(class_name);
 
@@ -434,14 +435,14 @@ pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: 
     }
 }
 
-fn getReturnType(method: GdExtensionApi.GdMethod, ctx: *CodegenContext) []const u8 {
+fn getReturnType(method: GdExtensionApi.GdMethod, ctx: *Context) []const u8 {
     return switch (method) {
         .builtin => |bc| correctType(bc.return_type, "", ctx),
         .class => |cls| if (cls.return_value) |ret| correctType(ret.type, ret.meta, ctx) else "void",
     };
 }
 
-pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, generated_method_map: *types.StringVoidMap, ctx: *CodegenContext) !void {
+pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
     const class_name = correctName(class_node.name, ctx);
     const enum_type_name = getVariantTypeName(class_name, ctx);
 
@@ -596,7 +597,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
     //             result.add fmt"""  methodBindings{className}.member_{origName}_setter(this.opaque.addr, v.opaque.addr){'\n'}"""
 }
 
-fn generateGlobalEnums(api: GdExtensionApi, config: CodegenConfig, ctx: *CodegenContext) !void {
+fn generateGlobalEnums(api: GdExtensionApi, config: CodegenConfig, ctx: *Context) !void {
     var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
 
@@ -609,29 +610,29 @@ fn generateGlobalEnums(api: GdExtensionApi, config: CodegenConfig, ctx: *Codegen
         }
     }
 
-    try ctx.appendClass("global");
+    try ctx.all_classes.append(ctx.allocator, "global");
     const file_name = try std.mem.concat(ctx.allocator, u8, &.{ config.output, "/global.zig" });
     defer ctx.allocator.free(file_name);
     const cwd = std.fs.cwd();
     try cwd.writeFile(.{ .sub_path = file_name, .data = code_builder.getWritten() });
 }
 
-fn parseEngineClasses(api: GdExtensionApi, ctx: *CodegenContext) !void {
+fn parseEngineClasses(api: GdExtensionApi, ctx: *Context) !void {
     for (api.classes) |bc| {
         // TODO: why?
         if (std.mem.eql(u8, bc.name, "ClassDB")) {
             continue;
         }
 
-        try ctx.putEngineClass(bc.name, bc.is_refcounted);
+        try ctx.engine_classes.put(ctx.allocator, bc.name, bc.is_refcounted);
     }
 
     for (api.native_structures) |ns| {
-        try ctx.putEngineClass(ns.name, false);
+        try ctx.engine_classes.put(ctx.allocator, ns.name, false);
     }
 }
 
-fn getArgumentsTypes(fn_node: GdExtensionApi.Builtin.Constructor, buf: []u8, ctx: *CodegenContext) string {
+fn getArgumentsTypes(fn_node: GdExtensionApi.Builtin.Constructor, buf: []u8, ctx: *Context) string {
     var pos: usize = 0;
     if (@hasField(@TypeOf(fn_node), "arguments")) {
         if (fn_node.arguments) |as| {
@@ -653,7 +654,7 @@ fn getArgumentsTypes(fn_node: GdExtensionApi.Builtin.Constructor, buf: []u8, ctx
     return buf[0..pos];
 }
 
-fn generateSingletonMethods(class_name: []const u8, code_builder: *StreamBuilder, generated_method_map: *types.StringVoidMap, ctx: *CodegenContext) !void {
+fn generateSingletonMethods(class_name: []const u8, code_builder: *StreamBuilder, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
     if (isSingleton(class_name, ctx)) {
         const singleton_code =
             \\var instance: ?{0s} = null;
@@ -670,16 +671,16 @@ fn generateSingletonMethods(class_name: []const u8, code_builder: *StreamBuilder
     }
 }
 
-fn initializeClassGeneration(class_name: []const u8, description: ?[]const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+fn initializeClassGeneration(class_name: []const u8, description: ?[]const u8, code_builder: *StreamBuilder, ctx: *Context) !void {
     code_builder.reset();
-    ctx.clearDependencies();
+    ctx.depends.clearRetainingCapacity();
 
     if (description) |desc| try code_builder.writeComments(desc);
     try code_builder.printLine(0, "pub const {s} = extern struct {{", .{class_name});
     try code_builder.writeLine(4, "pub const Self = @This();");
 }
 
-fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
+fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
     try code_builder.printLine(0, "}};", .{});
 
     const code = try addImports(class_name, code_builder, ctx);
@@ -691,7 +692,7 @@ fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder,
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
 }
 
-pub fn generateBuiltinClassMethods(bc: GdExtensionApi.Builtin, class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+pub fn generateBuiltinClassMethods(bc: GdExtensionApi.Builtin, class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) !void {
     var generated_method_map: types.StringVoidMap = .empty;
     defer generated_method_map.deinit(ctx.allocator);
 
@@ -700,7 +701,7 @@ pub fn generateBuiltinClassMethods(bc: GdExtensionApi.Builtin, class_name: []con
     try generateMethods(bc, code_builder, &generated_method_map, ctx);
 }
 
-fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) !void {
     var generated_method_map: types.StringVoidMap = .empty;
     defer generated_method_map.deinit(ctx.allocator);
 
@@ -708,14 +709,14 @@ fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, 
     try generateMethods(bc, code_builder, &generated_method_map, ctx);
 }
 
-fn generateBuiltinClass(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
+fn generateBuiltinClass(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
     const class_name = bc.name;
 
     if (shouldSkipClass(class_name)) {
         return;
     }
 
-    try ctx.appendClass(class_name);
+    try ctx.all_classes.append(ctx.allocator, class_name);
 
     try initializeClassGeneration(class_name, bc.description orelse bc.brief_description, code_builder, ctx);
 
@@ -736,9 +737,9 @@ fn isPackedArray(bc: GdExtensionApi.Builtin) bool {
     return packed_array.regex.isMatch(bc.name);
 }
 
-fn generateBuiltinClassField(class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
+fn generateBuiltinClassField(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) !void {
     try code_builder.printLine(0, "value:[{d}]u8,", .{
-        ctx.getClassSize(class_name) orelse std.debug.panic("Could not get class size for {x}", .{class_name}),
+        ctx.class_sizes.get(class_name) orelse std.debug.panic("Could not get class size for {x}", .{class_name}),
     });
 }
 
@@ -773,15 +774,15 @@ fn generateInstanceBindingCallbacks(class_name: []const u8, code_builder: *Strea
     try code_builder.printLine(0, callbacks_code, .{class_name});
 }
 
-pub fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
+pub fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
     const class_name = bc.name;
 
     if (shouldSkipClass(class_name)) {
         return;
     }
 
-    try ctx.appendClass(class_name);
-    try ctx.appendEngineClass(class_name);
+    try ctx.all_classes.append(ctx.allocator, class_name);
+    try ctx.all_engine_classes.append(ctx.allocator, class_name);
 
     try initializeClassGeneration(class_name, bc.description orelse bc.brief_description, code_builder, ctx);
 
@@ -813,7 +814,7 @@ fn generateBasicInit(code_builder: *StreamBuilder, class_name: []const u8) !void
     try code_builder.printLine(1, constructor_code, .{class_name});
 }
 
-fn generateClasses(api: GdExtensionApi, comptime of_type: ClassType, config: CodegenConfig, ctx: *CodegenContext) !void {
+fn generateClasses(api: GdExtensionApi, comptime of_type: ClassType, config: CodegenConfig, ctx: *Context) !void {
     const class_defs = if (of_type == .builtin) api.builtin_classes else api.classes;
     var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
@@ -831,8 +832,8 @@ fn generateClasses(api: GdExtensionApi, comptime of_type: ClassType, config: Cod
     }
 }
 
-fn generateGodotCore(config: CodegenConfig, ctx: *CodegenContext) !void {
-    const fp_map = ctx.func_pointers_map;
+fn generateGodotCore(config: CodegenConfig, ctx: *Context) !void {
+    const fp_map = ctx.func_pointers;
 
     var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
@@ -876,7 +877,7 @@ fn generateGodotCore(config: CodegenConfig, ctx: *CodegenContext) !void {
             defer ctx.allocator.free(res);
 
             const fn_name = fp_map.get(decl.name).?;
-            const fn_docs = ctx.func_docs_map.get(decl.name).?;
+            const fn_docs = ctx.func_docs.get(decl.name).?;
 
             res[0] = std.ascii.toLower(res[0]);
             try code_builder.write(0, fn_docs);
@@ -919,8 +920,8 @@ fn generateGodotCore(config: CodegenConfig, ctx: *CodegenContext) !void {
     try cwd.writeFile(.{ .sub_path = file_name, .data = code_builder.getWritten() });
 }
 
-fn getZigFuncName(godot_func_name: []const u8, ctx: *CodegenContext) []const u8 {
-    const result = ctx.getOrPutFuncName(godot_func_name) catch unreachable;
+fn getZigFuncName(godot_func_name: []const u8, ctx: *Context) []const u8 {
+    const result = ctx.func_names.getOrPut(ctx.allocator, godot_func_name) catch unreachable;
 
     if (!result.found_existing) {
         result.value_ptr.* = correctName(case.allocTo(ctx.allocator, func_case, godot_func_name) catch unreachable, ctx);
@@ -941,21 +942,21 @@ fn childType(type_name: string) string {
     return child_type;
 }
 
-fn isRefCounted(type_name: string, ctx: *CodegenContext) bool {
+fn isRefCounted(type_name: string, ctx: *Context) bool {
     const real_type = childType(type_name);
-    if (ctx.getEngineClass(real_type)) |v| {
+    if (ctx.engine_classes.get(real_type)) |v| {
         return v;
     }
     return false;
 }
 
-fn isEngineClass(type_name: string, ctx: *CodegenContext) bool {
+fn isEngineClass(type_name: string, ctx: *Context) bool {
     const real_type = childType(type_name);
-    return std.mem.eql(u8, real_type, "Object") or ctx.containsEngineClass(real_type);
+    return std.mem.eql(u8, real_type, "Object") or ctx.engine_classes.contains(real_type);
 }
 
-fn isSingleton(class_name: string, ctx: *CodegenContext) bool {
-    return ctx.containsSingleton(class_name);
+fn isSingleton(class_name: string, ctx: *Context) bool {
+    return ctx.singletons.contains(class_name);
 }
 
 fn isBitfield(type_name: string) bool {
@@ -988,34 +989,34 @@ fn getEnumName(type_name: string) string {
     }
 }
 
-fn getVariantTypeName(class_name: string, ctx: *CodegenContext) string {
+fn getVariantTypeName(class_name: string, ctx: *Context) string {
     var buf: [256]u8 = undefined;
     const nnn = toSnakeCase(class_name, &buf);
     return std.fmt.allocPrint(ctx.allocator, "godot.c.GDEXTENSION_VARIANT_TYPE_{s}", .{std.ascii.upperString(&buf, nnn)}) catch unreachable;
 }
 
-fn addDependType(type_name: string, ctx: *CodegenContext) !void {
+fn addDependType(type_name: string, ctx: *Context) !void {
     var depend_type = childType(type_name);
 
     if (std.mem.startsWith(u8, depend_type, "TypedArray")) {
         depend_type = depend_type[11 .. depend_type.len - 1];
-        try ctx.appendDependency("Array");
+        try ctx.depends.append(ctx.allocator, "Array");
     }
 
     if (std.mem.startsWith(u8, depend_type, "Ref(")) {
         depend_type = depend_type[4 .. depend_type.len - 1];
-        try ctx.appendDependency("Ref");
+        try ctx.depends.append(ctx.allocator, "Ref");
     }
 
     const pos = std.mem.indexOf(u8, depend_type, ".");
     if (pos) |p| {
-        try ctx.appendDependency(depend_type[0..p]);
+        try ctx.depends.append(ctx.allocator, depend_type[0..p]);
     } else {
-        try ctx.appendDependency(depend_type);
+        try ctx.depends.append(ctx.allocator, depend_type);
     }
 }
 
-fn correctType(type_name: string, meta: string, ctx: *CodegenContext) string {
+fn correctType(type_name: string, meta: string, ctx: *Context) string {
     var correct_type = if (meta.len > 0) meta else type_name;
     if (correct_type.len == 0) return "void";
 
@@ -1053,7 +1054,7 @@ fn correctType(type_name: string, meta: string, ctx: *CodegenContext) string {
     return correct_type;
 }
 
-fn correctName(name: string, ctx: *CodegenContext) string {
+fn correctName(name: string, ctx: *Context) string {
     if (keywords.has(name)) {
         return std.fmt.allocPrint(ctx.allocator, "@\"{s}\"", .{name}) catch unreachable;
     }
@@ -1061,7 +1062,7 @@ fn correctName(name: string, ctx: *CodegenContext) string {
     return name;
 }
 
-fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *CodegenContext) ![]const u8 {
+fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) ![]const u8 {
     //handle imports
     var imp_builder = StreamBuilder.init(ctx.allocator);
     defer imp_builder.deinit();
@@ -1107,10 +1108,10 @@ fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Codege
     return ctx.allocator.dupe(u8, imp_builder.getWritten());
 }
 
-fn generateUtilityFunctions(api: GdExtensionApi, config: CodegenConfig, ctx: *CodegenContext) !void {
+fn generateUtilityFunctions(api: GdExtensionApi, config: CodegenConfig, ctx: *Context) !void {
     var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
-    ctx.clearDependencies();
+    ctx.depends.clearRetainingCapacity();
 
     for (api.utility_functions) |f| {
         const return_type = correctType(f.return_type, "", ctx);
@@ -1179,26 +1180,26 @@ fn generateEngineConstants(bc: GdExtensionApi.Class, code_builder: *StreamBuilde
     }
 }
 
-fn parseClassSizes(api: GdExtensionApi, config: CodegenConfig, ctx: *CodegenContext) !void {
+fn parseClassSizes(api: GdExtensionApi, config: CodegenConfig, ctx: *Context) !void {
     for (api.builtin_class_sizes) |bcs| {
         if (!std.mem.eql(u8, bcs.build_configuration, config.conf)) {
             continue;
         }
 
         for (bcs.sizes) |sz| {
-            try ctx.putClassSize(sz.name, sz.size);
+            try ctx.class_sizes.put(ctx.allocator, sz.name, sz.size);
         }
     }
 }
 
-fn parseSingletons(api: GdExtensionApi, config: CodegenConfig, ctx: *CodegenContext) !void {
+fn parseSingletons(api: GdExtensionApi, config: CodegenConfig, ctx: *Context) !void {
     _ = config;
     for (api.singletons) |sg| {
-        try ctx.putSingleton(sg.name, sg.type);
+        try ctx.singletons.put(ctx.allocator, sg.name, sg.type);
     }
 }
 
-fn parseGdExtensionHeaders(config: CodegenConfig, ctx: *CodegenContext) !void {
+fn parseGdExtensionHeaders(config: CodegenConfig, ctx: *Context) !void {
     const header_file = try std.fs.openFileAbsolute(config.gdextension_h_path, .{});
     var buffered_reader = std.io.bufferedReader(header_file.reader());
     const reader = buffered_reader.reader();
@@ -1282,11 +1283,11 @@ fn parseGdExtensionHeaders(config: CodegenConfig, ctx: *CodegenContext) !void {
         }
 
         if (fn_name) |_| if (fp_type) |_| {
-            try ctx.putFuncPointer(fp_type.?, fn_name.?);
+            try ctx.func_pointers.put(ctx.allocator, fp_type.?, fn_name.?);
 
             if (doc_start) |start_index| if (doc_end) |end_index| {
                 const doc_text = try ctx.allocator.dupe(u8, doc_stream.items[start_index..end_index]);
-                try ctx.putFuncDoc(fp_type.?, doc_text);
+                try ctx.func_docs.put(ctx.allocator, fp_type.?, doc_text);
             };
 
             fn_name = null;

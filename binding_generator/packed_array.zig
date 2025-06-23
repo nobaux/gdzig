@@ -6,7 +6,7 @@ const types = @import("types.zig");
 const case = @import("case");
 
 const CodegenConfig = types.CodegenConfig;
-const CodegenContext = types.CodegenContext;
+const Context = @import("Context.zig");
 
 const PackedArrayType = enum {
     byte,
@@ -23,10 +23,10 @@ const PackedArrayType = enum {
 
 pub const regex = mzvr.compile("^Packed([a-zA-Z0-9])+Array$") orelse @compileError("Failed to compile regex");
 
-pub fn generate(class: GdExtensionApi.Builtin, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *CodegenContext) !void {
+pub fn generate(class: GdExtensionApi.Builtin, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
     _ = config;
 
-    try code_builder.printLine(1, "value: [{d}]u8,", .{ctx.getClassSize(class.name).?});
+    try code_builder.printLine(1, "value: [{d}]u8,", .{ctx.class_sizes.get(class.name).?});
 }
 
 fn parseArrayType(class_name: []const u8) !PackedArrayType {
