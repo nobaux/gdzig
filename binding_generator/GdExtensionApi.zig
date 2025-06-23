@@ -283,24 +283,14 @@ pub fn findBuiltinClass(self: @This(), name: []const u8) ?Builtin {
     return null;
 }
 
-pub const GdClassType = enum {
-    class,
-    builtinClass,
-};
-
-pub const GdMethodType = enum {
-    class,
-    builtinClass,
-};
-
-pub const GdMethod = union(GdMethodType) {
+pub const GdMethod = union(enum) {
     class: Class.Method,
-    builtinClass: Builtin.Method,
+    builtin: Builtin.Method,
 };
 
-pub const GdClass = union(GdClassType) {
+pub const GdClass = union(enum) {
     class: Class,
-    builtinClass: Builtin,
+    builtin: Builtin,
 
     pub fn getClassName(self: @This()) []const u8 {
         switch (self) {
@@ -326,7 +316,7 @@ fn findInheritsRecursive(self: @This(), allocator: std.mem.Allocator, class: Cla
     }
 
     if (self.findBuiltinClass(class.inherits)) |parent| {
-        try inherits.append(allocator, .{ .builtinClass = parent });
+        try inherits.append(allocator, .{ .builtin = parent });
     }
 }
 
