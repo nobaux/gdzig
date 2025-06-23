@@ -538,7 +538,7 @@ fn generateTypeEnd(b: *StreamBuilder, name: []const u8, ctx: *Context) !void {
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
 }
 
-pub fn generatePackedArray(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
+fn generatePackedArray(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
     try b.printLine(1, "value: [{d}]u8,", .{ctx.class_sizes.get(builtin.name).?});
 }
 
