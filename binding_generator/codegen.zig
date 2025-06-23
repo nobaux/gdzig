@@ -3,7 +3,457 @@ pub fn generate(ctx: *Context) !void {
     try generateUtilityFunctions(ctx);
     try generateBuiltins(ctx);
     try generateClasses(ctx);
-    try generateGodotCore(ctx);
+    try generateCore(ctx);
+}
+
+fn generateGlobalEnums(ctx: *Context) !void {
+    var b = StreamBuilder.init(ctx.allocator);
+    defer b.deinit();
+
+    for (ctx.api.global_enums) |@"enum"| {
+        if (std.mem.startsWith(u8, @"enum".name, "Variant.")) continue;
+        try generateGlobalEnum(&b, @"enum");
+    }
+
+    try ctx.all_classes.append(ctx.allocator, "global");
+
+    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ ctx.config.output, "/global.zig" });
+    defer ctx.allocator.free(file_name);
+
+    const cwd = std.fs.cwd();
+    try cwd.writeFile(.{ .sub_path = file_name, .data = b.getWritten() });
+}
+
+fn generateGlobalEnum(b: *StreamBuilder, @"enum": GodotApi.GlobalEnum) !void {
+    try b.printLine(0, "pub const {s} = i64;", .{@"enum".name});
+    for (@"enum".values) |value| {
+        try b.printLine(0, "pub const {s}: i64 = {d};", .{ value.name, value.value });
+    }
+}
+
+fn generateTypeStart(b: *StreamBuilder, name: []const u8, description: ?[]const u8, ctx: *Context) !void {
+    b.reset();
+    ctx.depends.clearRetainingCapacity();
+
+    if (description) |desc| try b.writeComments(desc);
+    try b.printLine(0, "pub const {s} = extern struct {{", .{name});
+    try b.writeLine(4, "pub const Self = @This();");
+}
+
+fn generateTypeEnd(b: *StreamBuilder, name: []const u8, ctx: *Context) !void {
+    try b.printLine(0, "}};", .{});
+
+    const code = try generateImports(b, name, ctx);
+    defer ctx.allocator.free(code);
+
+    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ ctx.config.output, "/", name, ".zig" });
+    defer ctx.allocator.free(file_name);
+    const cwd = std.fs.cwd();
+    try cwd.writeFile(.{ .sub_path = file_name, .data = code });
+}
+
+fn generateBuiltins(ctx: *Context) !void {
+    var b = StreamBuilder.init(ctx.allocator);
+    defer b.deinit();
+
+    for (ctx.api.builtin_classes) |builtin| {
+        if (util.shouldSkipClass(builtin.name)) {
+            continue;
+        }
+        try generateBuiltin(&b, builtin, ctx);
+    }
+}
+
+fn generateBuiltin(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
+    try ctx.all_classes.append(ctx.allocator, builtin.name);
+
+    try generateTypeStart(b, builtin.name, builtin.description orelse builtin.brief_description, ctx);
+    if (util.isPackedArray(builtin)) {
+        try generateBuiltinPackedArray(b, builtin, ctx);
+    } else {
+        try generateBuiltinField(b, builtin.name, ctx);
+    }
+    try generateBuiltinEnums(b, builtin);
+    try generateBuiltinConstants(b, builtin);
+    try generateBuiltinConstructors(b, builtin, ctx);
+    try generateBuiltinMethods(b, builtin, ctx);
+    try generateTypeEnd(b, builtin.name, ctx);
+}
+
+fn generateBuiltinEnums(b: *StreamBuilder, builtin: GodotApi.Builtin) !void {
+    if (builtin.enums) |enums| {
+        for (enums) |@"enum"| {
+            try b.printLine(0, "pub const {s} = c_int;", .{@"enum".name});
+            for (@"enum".values) |value| {
+                try b.printLine(0, "pub const {s}:c_int = {d};", .{ value.name, value.value });
+            }
+        }
+    }
+}
+
+fn generateBuiltinConstants(b: *StreamBuilder, builtin: GodotApi.Builtin) !void {
+    _ = b; // TODO: implement builtin constants generation
+    if (builtin.constants) |cs| {
+        for (cs) |c| {
+            _ = c; // TODO: parse value string
+            //try code_builder.printLine(0, "pub const {s}:{s} = {s};", .{ c.name, ctx.correctType(c.type, ""), c.value });
+        }
+    }
+}
+
+fn generateBuiltinConstructors(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
+    const name = ctx.correctName(builtin.name);
+
+    const string_class_extra_constructors_code =
+        \\pub fn initFromLatin1Chars(chars:[]const u8) Self{
+        \\    var self: Self = undefined;
+        \\    godot.core.stringNewWithLatin1CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    return self;
+        \\}
+        \\pub fn initFromUtf8Chars(chars:[]const u8) Self{
+        \\    var self: Self = undefined;
+        \\    godot.core.stringNewWithUtf8CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    return self;
+        \\}
+        \\pub fn initFromUtf16Chars(chars:[]const godot.char16_t) Self{
+        \\    var self: Self = undefined;
+        \\    godot.core.stringNewWithUtf16CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    return self;
+        \\}
+        \\pub fn initFromUtf32Chars(chars:[]const godot.char32_t) Self{
+        \\    var self: Self = undefined;
+        \\    godot.core.stringNewWithUtf32CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    return self;
+        \\}
+        \\pub fn initFromWideChars(chars:[]const godot.wchar_t) Self{
+        \\    var self: Self = undefined;
+        \\    godot.core.stringNewWithWideCharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    return self;
+        \\}
+    ;
+
+    const string_name_class_extra_constructors_code =
+        \\pub fn initStaticFromLatin1Chars(chars:[:0]const u8) Self{
+        \\    var self: Self = undefined;
+        \\    godot.core.stringNameNewWithLatin1Chars(@ptrCast(&self.value), chars.ptr, 1);
+        \\    return self;
+        \\}
+        \\pub fn initFromLatin1Chars(chars:[:0]const u8) Self{
+        \\    var self: Self = undefined;
+        \\    godot.core.stringNameNewWithLatin1Chars(@ptrCast(&self.value), chars.ptr, 0);
+        \\    return self;
+        \\}
+        \\pub fn initFromUtf8Chars(chars:[]const u8) Self{
+        \\    var self: Self = undefined;
+        \\    godot.core.stringNameNewWithUtf8CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    return self;
+        \\}
+    ;
+
+    if (@hasField(@TypeOf(builtin), "constructors")) {
+        if (std.mem.eql(u8, name, "String")) {
+            try b.writeLine(0, string_class_extra_constructors_code);
+        }
+        if (std.mem.eql(u8, name, "StringName")) {
+            try b.writeLine(0, string_name_class_extra_constructors_code);
+        }
+
+        for (builtin.constructors) |c| {
+            try generateProc(b, c, name, "init", "Self", .Constructor, ctx);
+        }
+
+        if (builtin.has_destructor) {
+            try generateProc(b, null, name, "deinit", "void", .Destructor, ctx);
+        }
+    }
+}
+
+fn generateBuiltinMethods(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
+    var generated_method_map: types.StringVoidMap = .empty;
+    defer generated_method_map.deinit(ctx.allocator);
+
+    try generateMethods(b, builtin, &generated_method_map, ctx);
+}
+
+fn generateBuiltinField(code_builder: *StreamBuilder, class_name: []const u8, ctx: *Context) !void {
+    try code_builder.printLine(0, "value: [{d}]u8,", .{
+        ctx.class_sizes.get(class_name) orelse std.debug.panic("Could not get class size for {x}", .{class_name}),
+    });
+}
+
+fn generateBuiltinPackedArray(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
+    try b.printLine(1, "value: [{d}]u8,", .{ctx.class_sizes.get(builtin.name).?});
+}
+
+fn generateClasses(ctx: *Context) !void {
+    var b = StreamBuilder.init(ctx.allocator);
+    defer b.deinit();
+
+    for (ctx.api.classes) |class| {
+        if (util.shouldSkipClass(class.name)) {
+            continue;
+        }
+        try generateClass(&b, class, ctx);
+    }
+}
+
+fn generateClass(b: *StreamBuilder, class: GodotApi.Class, ctx: *Context) !void {
+    try ctx.all_classes.append(ctx.allocator, class.name);
+    try ctx.all_engine_classes.append(ctx.allocator, class.name);
+
+    try generateTypeStart(b, class.name, class.description orelse class.brief_description, ctx);
+    try generateClassField(b);
+    try generateClassEnums(b, class);
+    try generateClassConstants(b, class);
+    if (class.findMethod("init") == null) {
+        try generateClassInit(b, class.name);
+    }
+    try generateClassMethods(b, class, class.name, ctx);
+    try generateTypeEnd(b, class.name, ctx);
+}
+
+fn generateClassField(b: *StreamBuilder) !void {
+    try b.writeLine(0,
+        \\godot_object: ?*anyopaque,
+        \\
+    );
+}
+
+fn generateClassEnums(b: *StreamBuilder, class: GodotApi.Class) !void {
+    if (class.enums) |enums| {
+        for (enums) |@"enum"| {
+            try b.printLine(0, "pub const {s} = c_int;", .{@"enum".name});
+            for (@"enum".values) |value| {
+                try b.printLine(0, "pub const {s}:c_int = {d};", .{ value.name, value.value });
+            }
+        }
+    }
+}
+
+fn generateClassConstants(b: *StreamBuilder, class: GodotApi.Class) !void {
+    if (class.constants) |constants| {
+        for (constants) |constant| {
+            try b.printLine(0, "pub const {s}: c_int = {d};", .{ constant.name, constant.value });
+        }
+    }
+}
+
+fn generateClassInit(b: *StreamBuilder, class_name: []const u8) !void {
+    try b.printLine(1,
+        \\pub fn init() {0s} {{
+        \\    return godot.core.init{0s}();
+        \\}}
+    , .{class_name});
+}
+
+fn generateClassMethods(b: *StreamBuilder, class: GodotApi.Class, class_name: []const u8, ctx: *Context) !void {
+    var generated_method_map: types.StringVoidMap = .empty;
+    defer generated_method_map.deinit(ctx.allocator);
+
+    try generateClassSingleton(b, class_name, &generated_method_map, ctx);
+    try generateMethods(b, class, &generated_method_map, ctx);
+}
+
+fn generateClassSingleton(b: *StreamBuilder, name: []const u8, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
+    if (ctx.isSingleton(name)) {
+        try b.printLine(0,
+            \\var instance: ?{0s} = null;
+            \\pub fn getSingleton() {0s} {{
+            \\    if (instance == null) {{
+            \\        const obj = godot.core.globalGetSingleton(@ptrCast(godot.getClassName({0s})));
+            \\        instance = .{{ .godot_object = obj }};
+            \\    }}
+            \\    return instance.?;
+            \\}}
+        , .{name});
+        try generated_method_map.putNoClobber(ctx.allocator, "getSingleton", {});
+    }
+}
+
+fn generateMethods(b: *StreamBuilder, @"type": anytype, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
+    const class_name = ctx.correctName(@"type".name);
+    const enum_type_name = ctx.getVariantTypeName(class_name);
+    const is_builtin_class = @TypeOf(@"type") == GodotApi.Builtin;
+    const proc_type = if (is_builtin_class) ProcType.BuiltinMethod else ProcType.ClassMethod;
+
+    var vf_builder = StreamBuilder.init(ctx.allocator);
+    defer vf_builder.deinit();
+
+    if (@"type".methods) |ms| {
+        for (ms) |m| {
+            const func_name = m.name;
+
+            const zig_func_name = ctx.getZigFuncName(func_name);
+
+            if (@hasField(@TypeOf(m), "is_virtual") and m.is_virtual) {
+                if (m.arguments) |as| {
+                    for (as) |a| {
+                        const arg_type = ctx.correctType(a.type, "");
+                        if (ctx.isEngineClass(arg_type) or ctx.isRefCounted(arg_type)) {
+                            //std.debug.print("engine class arg type:  {s}::{s}({s})\n", .{ class_name, m.name, arg_type });
+                        }
+                    }
+                }
+
+                const casecmp_to_func_name = ctx.getZigFuncName("casecmp_to");
+
+                try vf_builder.printLine(1, "if (@as(*StringName, @ptrCast(@constCast(p_name))).{1s}(\"{0s}\") == 0 and @hasDecl(T, \"{0s}\")) {{", .{
+                    func_name,
+                    casecmp_to_func_name,
+                });
+
+                try vf_builder.writeLine(2, "const MethodBinder = struct {");
+
+                try vf_builder.printLine(3, "pub fn {s}(p_instance: godot.c.GDExtensionClassInstancePtr, p_args: [*c]const godot.c.GDExtensionConstTypePtr, p_ret: godot.c.GDExtensionTypePtr) callconv(.C) void {{", .{
+                    func_name,
+                });
+                try vf_builder.printLine(4, "const MethodBinder = godot.MethodBinderT(@TypeOf(T.{s}));", .{
+                    func_name,
+                });
+                try vf_builder.printLine(4, "MethodBinder.bindPtrcall(@ptrCast(@constCast(&T.{s})), p_instance, p_args, p_ret);", .{
+                    func_name,
+                });
+                try vf_builder.writeLine(3, "}");
+                try vf_builder.writeLine(2, "};");
+
+                try vf_builder.printLine(2, "return MethodBinder.{s};", .{func_name});
+                try vf_builder.writeLine(1, "}");
+                continue;
+            } else {
+                const return_type = blk: {
+                    if (is_builtin_class) {
+                        break :blk ctx.correctType(m.return_type, "");
+                    } else if (m.return_value) |ret| {
+                        break :blk ctx.correctType(ret.type, ret.meta);
+                    } else {
+                        break :blk "void";
+                    }
+                };
+
+                if (!generated_method_map.contains(zig_func_name)) {
+                    try generated_method_map.putNoClobber(ctx.allocator, zig_func_name, {});
+                    try generateProc(b, m, class_name, func_name, return_type, proc_type, ctx);
+                }
+            }
+        }
+    }
+
+    if (!is_builtin_class) {
+        var class_inherits = try ctx.api.findInherits(ctx.allocator, @"type");
+        defer class_inherits.deinit(ctx.allocator);
+
+        for (class_inherits.items) |inherits| {
+            try generateVirtualMethods(b, inherits, ctx);
+        }
+
+        try b.writeLine(0, "pub fn getVirtualDispatch(comptime T:type, p_userdata: ?*anyopaque, p_name: godot.c.GDExtensionConstStringNamePtr) godot.c.GDExtensionClassCallVirtual {");
+        try b.writeLine(0, vf_builder.getWritten());
+        if (@"type".inherits.len > 0) {
+            try b.printLine(1, "return godot.core.{s}.getVirtualDispatch(T, p_userdata, p_name);", .{@"type".inherits});
+        } else {
+            try b.writeLine(1, "_ = T;");
+            try b.writeLine(1, "_ = p_userdata;");
+            try b.writeLine(1, "_ = p_name;");
+            try b.writeLine(1, "return null;");
+        }
+        try b.writeLine(0, "}");
+    }
+
+    if (@hasField(@TypeOf(@"type"), "members")) {
+        if (@"type".members) |ms| {
+            for (ms) |m| {
+                const member_type = ctx.correctType(m.type, "");
+                //getter
+                const temp_getter_name = try std.fmt.allocPrint(ctx.allocator, "get_{s}", .{m.name});
+                const getter_name = ctx.getZigFuncName(temp_getter_name);
+
+                if (!generated_method_map.contains(getter_name)) {
+                    try generated_method_map.putNoClobber(ctx.allocator, getter_name, {});
+
+                    try b.printLine(0, "pub fn {s}(self: Self) {s} {{", .{ getter_name, member_type });
+                    try b.printLine(1, "var result:{s} = undefined;", .{member_type});
+
+                    try b.writeLine(1, "const Binding = struct{ pub var method:godot.c.GDExtensionPtrGetter = null; };");
+                    try b.writeLine(1, "if( Binding.method == null ) {");
+                    try b.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{m.name});
+                    try b.printLine(2, "Binding.method = godot.core.variantGetPtrGetter({s}, @ptrCast(&func_name));", .{enum_type_name});
+                    try b.writeLine(1, "}");
+
+                    try b.writeLine(1, "Binding.method.?(@ptrCast(&self.value), @ptrCast(&result));");
+                    try b.writeLine(1, "return result;");
+                    try b.writeLine(0, "}");
+                }
+
+                //setter
+                const temp_setter_name = try std.fmt.allocPrint(ctx.allocator, "set_{s}", .{m.name});
+                const setter_name = ctx.getZigFuncName(temp_setter_name);
+
+                if (!generated_method_map.contains(setter_name)) {
+                    try generated_method_map.putNoClobber(ctx.allocator, setter_name, {});
+
+                    try b.printLine(0, "pub fn {s}(self: *Self, v: {s}) void {{", .{ setter_name, member_type });
+
+                    try b.writeLine(1, "const Binding = struct{ pub var method:godot.c.GDExtensionPtrSetter = null; };");
+                    try b.writeLine(1, "if( Binding.method == null ) {");
+                    try b.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{m.name});
+                    try b.printLine(2, "Binding.method = godot.core.variantGetPtrSetter({s}, @ptrCast(&func_name));", .{enum_type_name});
+                    try b.writeLine(1, "}");
+
+                    try b.writeLine(1, "Binding.method.?(@ptrCast(&self.value), @ptrCast(&v));");
+                    try b.writeLine(0, "}");
+                }
+            }
+        }
+    }
+    // if "members" in clsNode:
+    //     for m in clsNode["members"]:
+    //         var typeStr = m["type"].getStr
+    //         var origName = m["name"].getStr
+    //         var mname = correctName(origName)
+    //         if typeStr in ["bool", "int", "float"]:
+    //             result.add "proc " & mname & "*(this:" & className & "):" &
+    //                     typeStr & "=\n"
+    //             result.add fmt"""  methodBindings{className}.member_{origName}_getter(this.opaque.addr, result.addr){'\n'}"""
+    //             result.add "proc `" & origName & "=`*(this:var " & className &
+    //                     ", v:" & typeStr & ")=\n"
+    //             result.add fmt"""  methodBindings{className}.member_{origName}_setter(this.opaque.addr, v.addr){'\n'}"""
+    //         else:
+    //             result.add "proc " & mname & "*(this:" & className & "):" &
+    //                     typeStr & "=\n"
+    //             result.add fmt"""  methodBindings{className}.member_{origName}_getter(this.opaque.addr, result.opaque.addr){'\n'}"""
+    //             result.add "proc `" & origName & "=`*(this:var " & className &
+    //                     ", v:" & typeStr & ")=\n"
+    //             result.add fmt"""  methodBindings{className}.member_{origName}_setter(this.opaque.addr, v.opaque.addr){'\n'}"""
+}
+
+fn generateVirtualMethods(b: *StreamBuilder, @"type": GodotApi.Type, ctx: *Context) !void {
+    const name = try std.fmt.allocPrint(ctx.allocator, "godot.core.{s}", .{@"type".getClassName()});
+    defer ctx.allocator.free(name);
+
+    switch (@"type") {
+        .builtin => |builtin| {
+            if (builtin.methods) |methods| {
+                for (methods) |method| {
+                    if (method.isPrivate()) continue;
+
+                    const return_type = ctx.getReturnType(.{ .builtin = method });
+                    try b.printLine(1, "/// {s} builtin method: {s}", .{ builtin.name, method.name });
+                    try generateProc(b, method, name, method.name, return_type, .BuiltinMethod, ctx);
+                }
+            }
+        },
+        .class => |class| {
+            if (class.methods) |methods| {
+                for (methods) |method| {
+                    if (method.isPrivate()) continue;
+
+                    const return_type = ctx.getReturnType(.{ .class = method });
+                    try b.printLine(1, "/// {s} class method: {s}", .{ class.name, method.name });
+                    try generateProc(b, method, name, method.name, return_type, .ClassMethod, ctx);
+                }
+            }
+        },
+    }
 }
 
 fn generateProc(b: *StreamBuilder, fn_node: anytype, class_name: []const u8, func_name: []const u8, return_type_orig: []const u8, comptime proc_type: ProcType, ctx: *Context) !void {
@@ -223,418 +673,7 @@ fn generateProc(b: *StreamBuilder, fn_node: anytype, class_name: []const u8, fun
     try b.writeLine(0, "}");
 }
 
-fn generateBuiltinConstructor(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
-    const name = ctx.correctName(builtin.name);
-
-    const string_class_extra_constructors_code =
-        \\pub fn initFromLatin1Chars(chars:[]const u8) Self{
-        \\    var self: Self = undefined;
-        \\    godot.core.stringNewWithLatin1CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
-        \\    return self;
-        \\}
-        \\pub fn initFromUtf8Chars(chars:[]const u8) Self{
-        \\    var self: Self = undefined;
-        \\    godot.core.stringNewWithUtf8CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
-        \\    return self;
-        \\}
-        \\pub fn initFromUtf16Chars(chars:[]const godot.char16_t) Self{
-        \\    var self: Self = undefined;
-        \\    godot.core.stringNewWithUtf16CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
-        \\    return self;
-        \\}
-        \\pub fn initFromUtf32Chars(chars:[]const godot.char32_t) Self{
-        \\    var self: Self = undefined;
-        \\    godot.core.stringNewWithUtf32CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
-        \\    return self;
-        \\}
-        \\pub fn initFromWideChars(chars:[]const godot.wchar_t) Self{
-        \\    var self: Self = undefined;
-        \\    godot.core.stringNewWithWideCharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
-        \\    return self;
-        \\}
-    ;
-
-    const string_name_class_extra_constructors_code =
-        \\pub fn initStaticFromLatin1Chars(chars:[:0]const u8) Self{
-        \\    var self: Self = undefined;
-        \\    godot.core.stringNameNewWithLatin1Chars(@ptrCast(&self.value), chars.ptr, 1);
-        \\    return self;
-        \\}
-        \\pub fn initFromLatin1Chars(chars:[:0]const u8) Self{
-        \\    var self: Self = undefined;
-        \\    godot.core.stringNameNewWithLatin1Chars(@ptrCast(&self.value), chars.ptr, 0);
-        \\    return self;
-        \\}
-        \\pub fn initFromUtf8Chars(chars:[]const u8) Self{
-        \\    var self: Self = undefined;
-        \\    godot.core.stringNameNewWithUtf8CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
-        \\    return self;
-        \\}
-    ;
-
-    if (@hasField(@TypeOf(builtin), "constructors")) {
-        if (std.mem.eql(u8, name, "String")) {
-            try b.writeLine(0, string_class_extra_constructors_code);
-        }
-        if (std.mem.eql(u8, name, "StringName")) {
-            try b.writeLine(0, string_name_class_extra_constructors_code);
-        }
-
-        for (builtin.constructors) |c| {
-            try generateProc(b, c, name, "init", "Self", .Constructor, ctx);
-        }
-
-        if (builtin.has_destructor) {
-            try generateProc(b, null, name, "deinit", "void", .Destructor, ctx);
-        }
-    }
-}
-
-fn generateClassVirtualMethods(b: *StreamBuilder, @"type": GodotApi.Type, ctx: *Context) !void {
-    const name = try std.fmt.allocPrint(ctx.allocator, "godot.core.{s}", .{@"type".getClassName()});
-    defer ctx.allocator.free(name);
-
-    switch (@"type") {
-        .builtin => |builtin| {
-            if (builtin.methods) |methods| {
-                for (methods) |method| {
-                    if (method.isPrivate()) continue;
-
-                    const return_type = ctx.getReturnType(.{ .builtin = method });
-                    try b.printLine(1, "/// {s} builtin method: {s}", .{ builtin.name, method.name });
-                    try generateProc(b, method, name, method.name, return_type, .BuiltinMethod, ctx);
-                }
-            }
-        },
-        .class => |class| {
-            if (class.methods) |methods| {
-                for (methods) |method| {
-                    if (method.isPrivate()) continue;
-
-                    const return_type = ctx.getReturnType(.{ .class = method });
-                    try b.printLine(1, "/// {s} class method: {s}", .{ class.name, method.name });
-                    try generateProc(b, method, name, method.name, return_type, .ClassMethod, ctx);
-                }
-            }
-        },
-    }
-}
-
-fn generateMethods(b: *StreamBuilder, @"type": anytype, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
-    const class_name = ctx.correctName(@"type".name);
-    const enum_type_name = ctx.getVariantTypeName(class_name);
-    const is_builtin_class = @TypeOf(@"type") == GodotApi.Builtin;
-    const proc_type = if (is_builtin_class) ProcType.BuiltinMethod else ProcType.ClassMethod;
-
-    var vf_builder = StreamBuilder.init(ctx.allocator);
-    defer vf_builder.deinit();
-
-    if (@"type".methods) |ms| {
-        for (ms) |m| {
-            const func_name = m.name;
-
-            const zig_func_name = ctx.getZigFuncName(func_name);
-
-            if (@hasField(@TypeOf(m), "is_virtual") and m.is_virtual) {
-                if (m.arguments) |as| {
-                    for (as) |a| {
-                        const arg_type = ctx.correctType(a.type, "");
-                        if (ctx.isEngineClass(arg_type) or ctx.isRefCounted(arg_type)) {
-                            //std.debug.print("engine class arg type:  {s}::{s}({s})\n", .{ class_name, m.name, arg_type });
-                        }
-                    }
-                }
-
-                const casecmp_to_func_name = ctx.getZigFuncName("casecmp_to");
-
-                try vf_builder.printLine(1, "if (@as(*StringName, @ptrCast(@constCast(p_name))).{1s}(\"{0s}\") == 0 and @hasDecl(T, \"{0s}\")) {{", .{
-                    func_name,
-                    casecmp_to_func_name,
-                });
-
-                try vf_builder.writeLine(2, "const MethodBinder = struct {");
-
-                try vf_builder.printLine(3, "pub fn {s}(p_instance: godot.c.GDExtensionClassInstancePtr, p_args: [*c]const godot.c.GDExtensionConstTypePtr, p_ret: godot.c.GDExtensionTypePtr) callconv(.C) void {{", .{
-                    func_name,
-                });
-                try vf_builder.printLine(4, "const MethodBinder = godot.MethodBinderT(@TypeOf(T.{s}));", .{
-                    func_name,
-                });
-                try vf_builder.printLine(4, "MethodBinder.bindPtrcall(@ptrCast(@constCast(&T.{s})), p_instance, p_args, p_ret);", .{
-                    func_name,
-                });
-                try vf_builder.writeLine(3, "}");
-                try vf_builder.writeLine(2, "};");
-
-                try vf_builder.printLine(2, "return MethodBinder.{s};", .{func_name});
-                try vf_builder.writeLine(1, "}");
-                continue;
-            } else {
-                const return_type = blk: {
-                    if (is_builtin_class) {
-                        break :blk ctx.correctType(m.return_type, "");
-                    } else if (m.return_value) |ret| {
-                        break :blk ctx.correctType(ret.type, ret.meta);
-                    } else {
-                        break :blk "void";
-                    }
-                };
-
-                if (!generated_method_map.contains(zig_func_name)) {
-                    try generated_method_map.putNoClobber(ctx.allocator, zig_func_name, {});
-                    try generateProc(b, m, class_name, func_name, return_type, proc_type, ctx);
-                }
-            }
-        }
-    }
-
-    if (!is_builtin_class) {
-        var class_inherits = try ctx.api.findInherits(ctx.allocator, @"type");
-        defer class_inherits.deinit(ctx.allocator);
-
-        for (class_inherits.items) |inherits| {
-            try generateClassVirtualMethods(b, inherits, ctx);
-        }
-
-        try b.writeLine(0, "pub fn getVirtualDispatch(comptime T:type, p_userdata: ?*anyopaque, p_name: godot.c.GDExtensionConstStringNamePtr) godot.c.GDExtensionClassCallVirtual {");
-        try b.writeLine(0, vf_builder.getWritten());
-        if (@"type".inherits.len > 0) {
-            try b.printLine(1, "return godot.core.{s}.getVirtualDispatch(T, p_userdata, p_name);", .{@"type".inherits});
-        } else {
-            try b.writeLine(1, "_ = T;");
-            try b.writeLine(1, "_ = p_userdata;");
-            try b.writeLine(1, "_ = p_name;");
-            try b.writeLine(1, "return null;");
-        }
-        try b.writeLine(0, "}");
-    }
-
-    if (@hasField(@TypeOf(@"type"), "members")) {
-        if (@"type".members) |ms| {
-            for (ms) |m| {
-                const member_type = ctx.correctType(m.type, "");
-                //getter
-                const temp_getter_name = try std.fmt.allocPrint(ctx.allocator, "get_{s}", .{m.name});
-                const getter_name = ctx.getZigFuncName(temp_getter_name);
-
-                if (!generated_method_map.contains(getter_name)) {
-                    try generated_method_map.putNoClobber(ctx.allocator, getter_name, {});
-
-                    try b.printLine(0, "pub fn {s}(self: Self) {s} {{", .{ getter_name, member_type });
-                    try b.printLine(1, "var result:{s} = undefined;", .{member_type});
-
-                    try b.writeLine(1, "const Binding = struct{ pub var method:godot.c.GDExtensionPtrGetter = null; };");
-                    try b.writeLine(1, "if( Binding.method == null ) {");
-                    try b.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{m.name});
-                    try b.printLine(2, "Binding.method = godot.core.variantGetPtrGetter({s}, @ptrCast(&func_name));", .{enum_type_name});
-                    try b.writeLine(1, "}");
-
-                    try b.writeLine(1, "Binding.method.?(@ptrCast(&self.value), @ptrCast(&result));");
-                    try b.writeLine(1, "return result;");
-                    try b.writeLine(0, "}");
-                }
-
-                //setter
-                const temp_setter_name = try std.fmt.allocPrint(ctx.allocator, "set_{s}", .{m.name});
-                const setter_name = ctx.getZigFuncName(temp_setter_name);
-
-                if (!generated_method_map.contains(setter_name)) {
-                    try generated_method_map.putNoClobber(ctx.allocator, setter_name, {});
-
-                    try b.printLine(0, "pub fn {s}(self: *Self, v: {s}) void {{", .{ setter_name, member_type });
-
-                    try b.writeLine(1, "const Binding = struct{ pub var method:godot.c.GDExtensionPtrSetter = null; };");
-                    try b.writeLine(1, "if( Binding.method == null ) {");
-                    try b.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{m.name});
-                    try b.printLine(2, "Binding.method = godot.core.variantGetPtrSetter({s}, @ptrCast(&func_name));", .{enum_type_name});
-                    try b.writeLine(1, "}");
-
-                    try b.writeLine(1, "Binding.method.?(@ptrCast(&self.value), @ptrCast(&v));");
-                    try b.writeLine(0, "}");
-                }
-            }
-        }
-    }
-    // if "members" in clsNode:
-    //     for m in clsNode["members"]:
-    //         var typeStr = m["type"].getStr
-    //         var origName = m["name"].getStr
-    //         var mname = correctName(origName)
-    //         if typeStr in ["bool", "int", "float"]:
-    //             result.add "proc " & mname & "*(this:" & className & "):" &
-    //                     typeStr & "=\n"
-    //             result.add fmt"""  methodBindings{className}.member_{origName}_getter(this.opaque.addr, result.addr){'\n'}"""
-    //             result.add "proc `" & origName & "=`*(this:var " & className &
-    //                     ", v:" & typeStr & ")=\n"
-    //             result.add fmt"""  methodBindings{className}.member_{origName}_setter(this.opaque.addr, v.addr){'\n'}"""
-    //         else:
-    //             result.add "proc " & mname & "*(this:" & className & "):" &
-    //                     typeStr & "=\n"
-    //             result.add fmt"""  methodBindings{className}.member_{origName}_getter(this.opaque.addr, result.opaque.addr){'\n'}"""
-    //             result.add "proc `" & origName & "=`*(this:var " & className &
-    //                     ", v:" & typeStr & ")=\n"
-    //             result.add fmt"""  methodBindings{className}.member_{origName}_setter(this.opaque.addr, v.opaque.addr){'\n'}"""
-}
-
-fn generateGlobalEnums(ctx: *Context) !void {
-    var b = StreamBuilder.init(ctx.allocator);
-    defer b.deinit();
-
-    for (ctx.api.global_enums) |@"enum"| {
-        if (std.mem.startsWith(u8, @"enum".name, "Variant.")) continue;
-        try generateGlobalEnum(&b, @"enum");
-    }
-
-    try ctx.all_classes.append(ctx.allocator, "global");
-
-    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ ctx.config.output, "/global.zig" });
-    defer ctx.allocator.free(file_name);
-
-    const cwd = std.fs.cwd();
-    try cwd.writeFile(.{ .sub_path = file_name, .data = b.getWritten() });
-}
-
-fn generateGlobalEnum(b: *StreamBuilder, @"enum": GodotApi.GlobalEnum) !void {
-    try b.printLine(0, "pub const {s} = i64;", .{@"enum".name});
-    for (@"enum".values) |value| {
-        try b.printLine(0, "pub const {s}: i64 = {d};", .{ value.name, value.value });
-    }
-}
-
-fn generateSingletonMethods(b: *StreamBuilder, name: []const u8, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
-    if (ctx.isSingleton(name)) {
-        try b.printLine(0,
-            \\var instance: ?{0s} = null;
-            \\pub fn getSingleton() {0s} {{
-            \\    if (instance == null) {{
-            \\        const obj = godot.core.globalGetSingleton(@ptrCast(godot.getClassName({0s})));
-            \\        instance = .{{ .godot_object = obj }};
-            \\    }}
-            \\    return instance.?;
-            \\}}
-        , .{name});
-        try generated_method_map.putNoClobber(ctx.allocator, "getSingleton", {});
-    }
-}
-
-fn generateTypeStart(b: *StreamBuilder, name: []const u8, description: ?[]const u8, ctx: *Context) !void {
-    b.reset();
-    ctx.depends.clearRetainingCapacity();
-
-    if (description) |desc| try b.writeComments(desc);
-    try b.printLine(0, "pub const {s} = extern struct {{", .{name});
-    try b.writeLine(4, "pub const Self = @This();");
-}
-
-fn generateTypeEnd(b: *StreamBuilder, name: []const u8, ctx: *Context) !void {
-    try b.printLine(0, "}};", .{});
-
-    const code = try generateImports(b, name, ctx);
-    defer ctx.allocator.free(code);
-
-    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ ctx.config.output, "/", name, ".zig" });
-    defer ctx.allocator.free(file_name);
-    const cwd = std.fs.cwd();
-    try cwd.writeFile(.{ .sub_path = file_name, .data = code });
-}
-
-fn generatePackedArray(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
-    try b.printLine(1, "value: [{d}]u8,", .{ctx.class_sizes.get(builtin.name).?});
-}
-
-fn generateBuiltin(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
-    try ctx.all_classes.append(ctx.allocator, builtin.name);
-
-    try generateTypeStart(b, builtin.name, builtin.description orelse builtin.brief_description, ctx);
-    if (util.isPackedArray(builtin)) {
-        try generatePackedArray(b, builtin, ctx);
-    } else {
-        try generateBuiltinField(b, builtin.name, ctx);
-    }
-    try generateBuiltinEnums(b, builtin);
-    try generateBuiltinConstants(b, builtin);
-    try generateBuiltinMethods(b, builtin, builtin.name, ctx);
-    try generateTypeEnd(b, builtin.name, ctx);
-}
-
-fn generateBuiltinMethods(b: *StreamBuilder, builtin: GodotApi.Builtin, builtin_name: []const u8, ctx: *Context) !void {
-    var generated_method_map: types.StringVoidMap = .empty;
-    defer generated_method_map.deinit(ctx.allocator);
-
-    try generateSingletonMethods(b, builtin_name, &generated_method_map, ctx);
-    try generateBuiltinConstructor(b, builtin, ctx);
-    try generateMethods(b, builtin, &generated_method_map, ctx);
-}
-
-fn generateClassMethods(b: *StreamBuilder, class: GodotApi.Class, class_name: []const u8, ctx: *Context) !void {
-    var generated_method_map: types.StringVoidMap = .empty;
-    defer generated_method_map.deinit(ctx.allocator);
-
-    try generateSingletonMethods(b, class_name, &generated_method_map, ctx);
-    try generateMethods(b, class, &generated_method_map, ctx);
-}
-
-fn generateBuiltinField(code_builder: *StreamBuilder, class_name: []const u8, ctx: *Context) !void {
-    try code_builder.printLine(0, "value: [{d}]u8,", .{
-        ctx.class_sizes.get(class_name) orelse std.debug.panic("Could not get class size for {x}", .{class_name}),
-    });
-}
-
-fn generateClass(b: *StreamBuilder, class: GodotApi.Class, ctx: *Context) !void {
-    try ctx.all_classes.append(ctx.allocator, class.name);
-    try ctx.all_engine_classes.append(ctx.allocator, class.name);
-
-    try generateTypeStart(b, class.name, class.description orelse class.brief_description, ctx);
-    try generateClassField(b);
-    try generateClassEnums(b, class);
-    try generateClassConstants(b, class);
-    if (class.findMethod("init") == null) {
-        try generateClassInit(b, class.name);
-    }
-    try generateClassMethods(b, class, class.name, ctx);
-    try generateTypeEnd(b, class.name, ctx);
-}
-
-fn generateClassField(b: *StreamBuilder) !void {
-    try b.writeLine(0,
-        \\godot_object: ?*anyopaque,
-        \\
-    );
-}
-
-fn generateClassInit(b: *StreamBuilder, class_name: []const u8) !void {
-    try b.printLine(1,
-        \\pub fn init() {0s} {{
-        \\    return godot.core.init{0s}();
-        \\}}
-    , .{class_name});
-}
-
-fn generateBuiltins(ctx: *Context) !void {
-    var b = StreamBuilder.init(ctx.allocator);
-    defer b.deinit();
-
-    for (ctx.api.builtin_classes) |builtin| {
-        if (util.shouldSkipClass(builtin.name)) {
-            continue;
-        }
-        try generateBuiltin(&b, builtin, ctx);
-    }
-}
-
-fn generateClasses(ctx: *Context) !void {
-    var b = StreamBuilder.init(ctx.allocator);
-    defer b.deinit();
-
-    for (ctx.api.classes) |class| {
-        if (util.shouldSkipClass(class.name)) {
-            continue;
-        }
-        try generateClass(&b, class, ctx);
-    }
-}
-
-fn generateGodotCore(ctx: *Context) !void {
+fn generateCore(ctx: *Context) !void {
     const fp_map = ctx.func_pointers;
 
     var cb = StreamBuilder.init(ctx.allocator);
@@ -787,46 +826,6 @@ fn generateUtilityFunctions(ctx: *Context) !void {
     defer ctx.allocator.free(file_name);
     const cwd = std.fs.cwd();
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
-}
-
-fn generateBuiltinEnums(b: *StreamBuilder, builtin: GodotApi.Builtin) !void {
-    if (builtin.enums) |enums| {
-        for (enums) |@"enum"| {
-            try b.printLine(0, "pub const {s} = c_int;", .{@"enum".name});
-            for (@"enum".values) |value| {
-                try b.printLine(0, "pub const {s}:c_int = {d};", .{ value.name, value.value });
-            }
-        }
-    }
-}
-
-fn generateClassEnums(b: *StreamBuilder, class: GodotApi.Class) !void {
-    if (class.enums) |enums| {
-        for (enums) |@"enum"| {
-            try b.printLine(0, "pub const {s} = c_int;", .{@"enum".name});
-            for (@"enum".values) |value| {
-                try b.printLine(0, "pub const {s}:c_int = {d};", .{ value.name, value.value });
-            }
-        }
-    }
-}
-
-fn generateBuiltinConstants(b: *StreamBuilder, builtin: GodotApi.Builtin) !void {
-    _ = b; // TODO: implement builtin constants generation
-    if (builtin.constants) |cs| {
-        for (cs) |c| {
-            _ = c; // TODO: parse value string
-            //try code_builder.printLine(0, "pub const {s}:{s} = {s};", .{ c.name, ctx.correctType(c.type, ""), c.value });
-        }
-    }
-}
-
-fn generateClassConstants(b: *StreamBuilder, class: GodotApi.Class) !void {
-    if (class.constants) |constants| {
-        for (constants) |constant| {
-            try b.printLine(0, "pub const {s}: c_int = {d};", .{ constant.name, constant.value });
-        }
-    }
 }
 
 const std = @import("std");
