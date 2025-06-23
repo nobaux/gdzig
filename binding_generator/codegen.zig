@@ -238,7 +238,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         try code_builder.printLine(1, "var args:[fields.len + {d}]*const godot.Variant = undefined;", .{args.items.len - 1});
         for (0..args.items.len - 1) |i| {
             if (isStringType(arg_types.items[i])) {
-                try code_builder.printLine(1, "args[{d}] = &godot.Variant.initFrom(godot.String.initFromLatin1Chars({s}));", .{ i, args.items[i] });
+                try code_builder.printLine(1, "args[{d}] = &godot.Variant.initFrom(godot.core.String.initFromLatin1Chars({s}));", .{ i, args.items[i] });
             } else {
                 try code_builder.printLine(1, "args[{d}] = &godot.Variant.initFrom({s});", .{ i, args.items[i] });
             }
@@ -295,10 +295,10 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
             if (is_vararg) {
                 try code_builder.writeLine(1, "var err:godot.c.GDExtensionCallError = undefined;");
                 if (std.mem.eql(u8, return_type, "Variant")) {
-                    try code_builder.printLine(1, "godot.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &result, &err);", .{self_ptr});
+                    try code_builder.printLine(1, "godot.core.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &result, &err);", .{self_ptr});
                 } else {
                     try code_builder.writeLine(1, "var ret:Variant = Variant.init();");
-                    try code_builder.printLine(1, "godot.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &ret, &err);", .{self_ptr});
+                    try code_builder.printLine(1, "godot.core.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &ret, &err);", .{self_ptr});
                     if (need_return) {
                         try code_builder.printLine(1, "result = ret.as({s});", .{return_type});
                     }
@@ -306,10 +306,10 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
             } else {
                 if (isEngineClass(return_type, ctx)) {
                     try code_builder.writeLine(1, "var godot_object:?*anyopaque = null;");
-                    try code_builder.printLine(1, "godot.objectMethodBindPtrcall(method, {s}, {s}, @ptrCast(&godot_object));", .{ self_ptr, arg_array });
+                    try code_builder.printLine(1, "godot.core.objectMethodBindPtrcall(method, {s}, {s}, @ptrCast(&godot_object));", .{ self_ptr, arg_array });
                     try code_builder.printLine(1, "result = {s}{{ .godot_object = godot_object }};", .{childType(return_type)});
                 } else {
-                    try code_builder.printLine(1, "godot.objectMethodBindPtrcall(method, {s}, {s}, {s});", .{ self_ptr, arg_array, result_string });
+                    try code_builder.printLine(1, "godot.core.objectMethodBindPtrcall(method, {s}, {s}, {s});", .{ self_ptr, arg_array, result_string });
                 }
             }
         },
@@ -343,27 +343,27 @@ pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *St
     const string_class_extra_constructors_code =
         \\pub fn initFromLatin1Chars(chars:[]const u8) Self{
         \\    var self: Self = undefined;
-        \\    godot.stringNewWithLatin1CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    godot.core.stringNewWithLatin1CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
         \\    return self;
         \\}
         \\pub fn initFromUtf8Chars(chars:[]const u8) Self{
         \\    var self: Self = undefined;
-        \\    godot.stringNewWithUtf8CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    godot.core.stringNewWithUtf8CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
         \\    return self;
         \\}
         \\pub fn initFromUtf16Chars(chars:[]const godot.char16_t) Self{
         \\    var self: Self = undefined;
-        \\    godot.stringNewWithUtf16CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    godot.core.stringNewWithUtf16CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
         \\    return self;
         \\}
         \\pub fn initFromUtf32Chars(chars:[]const godot.char32_t) Self{
         \\    var self: Self = undefined;
-        \\    godot.stringNewWithUtf32CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    godot.core.stringNewWithUtf32CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
         \\    return self;
         \\}
         \\pub fn initFromWideChars(chars:[]const godot.wchar_t) Self{
         \\    var self: Self = undefined;
-        \\    godot.stringNewWithWideCharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    godot.core.stringNewWithWideCharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
         \\    return self;
         \\}
     ;
@@ -371,17 +371,17 @@ pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *St
     const string_name_class_extra_constructors_code =
         \\pub fn initStaticFromLatin1Chars(chars:[:0]const u8) Self{
         \\    var self: Self = undefined;
-        \\    godot.stringNameNewWithLatin1Chars(@ptrCast(&self.value), chars.ptr, 1);
+        \\    godot.core.stringNameNewWithLatin1Chars(@ptrCast(&self.value), chars.ptr, 1);
         \\    return self;
         \\}
         \\pub fn initFromLatin1Chars(chars:[:0]const u8) Self{
         \\    var self: Self = undefined;
-        \\    godot.stringNameNewWithLatin1Chars(@ptrCast(&self.value), chars.ptr, 0);
+        \\    godot.core.stringNameNewWithLatin1Chars(@ptrCast(&self.value), chars.ptr, 0);
         \\    return self;
         \\}
         \\pub fn initFromUtf8Chars(chars:[]const u8) Self{
         \\    var self: Self = undefined;
-        \\    godot.stringNameNewWithUtf8CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
+        \\    godot.core.stringNameNewWithUtf8CharsAndLen(@ptrCast(&self.value), chars.ptr, @intCast(chars.len));
         \\    return self;
         \\}
     ;
@@ -405,7 +405,7 @@ pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *St
 }
 
 pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: *StreamBuilder, ctx: *CodegenContext) !void {
-    const class_name = try std.fmt.allocPrint(ctx.allocator, "godot.{s}", .{class_node.getClassName()});
+    const class_name = try std.fmt.allocPrint(ctx.allocator, "godot.core.{s}", .{class_node.getClassName()});
     defer ctx.allocator.free(class_name);
 
     switch (class_node) {
@@ -520,7 +520,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
         try code_builder.writeLine(0, "pub fn getVirtualDispatch(comptime T:type, p_userdata: ?*anyopaque, p_name: godot.c.GDExtensionConstStringNamePtr) godot.c.GDExtensionClassCallVirtual {");
         try code_builder.writeLine(0, vf_builder.getWritten());
         if (class_node.inherits.len > 0) {
-            try code_builder.printLine(1, "return godot.{s}.getVirtualDispatch(T, p_userdata, p_name);", .{class_node.inherits});
+            try code_builder.printLine(1, "return godot.core.{s}.getVirtualDispatch(T, p_userdata, p_name);", .{class_node.inherits});
         } else {
             try code_builder.writeLine(1, "_ = T;");
             try code_builder.writeLine(1, "_ = p_userdata;");
@@ -546,7 +546,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
                     try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.c.GDExtensionPtrGetter = null; };");
                     try code_builder.writeLine(1, "if( Binding.method == null ) {");
                     try code_builder.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{m.name});
-                    try code_builder.printLine(2, "Binding.method = godot.variantGetPtrGetter({s}, @ptrCast(&func_name));", .{enum_type_name});
+                    try code_builder.printLine(2, "Binding.method = godot.core.variantGetPtrGetter({s}, @ptrCast(&func_name));", .{enum_type_name});
                     try code_builder.writeLine(1, "}");
 
                     try code_builder.writeLine(1, "Binding.method.?(@ptrCast(&self.value), @ptrCast(&result));");
@@ -566,7 +566,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
                     try code_builder.writeLine(1, "const Binding = struct{ pub var method:godot.c.GDExtensionPtrSetter = null; };");
                     try code_builder.writeLine(1, "if( Binding.method == null ) {");
                     try code_builder.printLine(2, "const func_name = StringName.initFromLatin1Chars(\"{s}\");", .{m.name});
-                    try code_builder.printLine(2, "Binding.method = godot.variantGetPtrSetter({s}, @ptrCast(&func_name));", .{enum_type_name});
+                    try code_builder.printLine(2, "Binding.method = godot.core.variantGetPtrSetter({s}, @ptrCast(&func_name));", .{enum_type_name});
                     try code_builder.writeLine(1, "}");
 
                     try code_builder.writeLine(1, "Binding.method.?(@ptrCast(&self.value), @ptrCast(&v));");
@@ -659,7 +659,7 @@ fn generateSingletonMethods(class_name: []const u8, code_builder: *StreamBuilder
             \\var instance: ?{0s} = null;
             \\pub fn getSingleton() {0s} {{
             \\    if(instance == null ) {{
-            \\        const obj = godot.globalGetSingleton(@ptrCast(godot.getClassName({0s})));
+            \\        const obj = godot.core.globalGetSingleton(@ptrCast(godot.getClassName({0s})));
             \\        instance = .{{ .godot_object = obj }};
             \\    }}
             \\    return instance.?;
@@ -752,14 +752,14 @@ fn generateInstanceBindingCallbacks(class_name: []const u8, code_builder: *Strea
         \\pub var callbacks_{0s} = godot.c.GDExtensionInstanceBindingCallbacks{{ .create_callback = instanceBindingCreateCallback, .free_callback = instanceBindingFreeCallback, .reference_callback = instanceBindingReferenceCallback }};
         \\fn instanceBindingCreateCallback(p_token: ?*anyopaque, p_instance: ?*anyopaque) callconv(.C) ?*anyopaque {{
         \\    _ = p_token;
-        \\    var self = @as(*{0s}, @ptrCast(@alignCast(godot.memAlloc(@sizeOf({0s})))));
+        \\    var self = @as(*{0s}, @ptrCast(@alignCast(godot.core.memAlloc(@sizeOf({0s})))));
         \\    //var self = godot.general_allocator.create({0s}) catch unreachable;
         \\    self.godot_object = @ptrCast(p_instance);
         \\    return @ptrCast(self);
         \\}}
         \\fn instanceBindingFreeCallback(p_token: ?*anyopaque, p_instance: ?*anyopaque, p_binding: ?*anyopaque) callconv(.C) void {{
         \\    //godot.general_allocator.destroy(@as(*{0s}, @ptrCast(@alignCast(p_binding.?))));
-        \\    godot.memFree(p_binding.?);
+        \\    godot.core.memFree(p_binding.?);
         \\    _ = p_instance;
         \\    _ = p_token;
         \\}}
@@ -806,7 +806,7 @@ pub fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, con
 fn generateBasicInit(code_builder: *StreamBuilder, class_name: []const u8) !void {
     const constructor_code =
         \\pub fn init() {0s} {{
-        \\    return godot.init{0s}();
+        \\    return godot.core.init{0s}();
         \\}}
     ;
 
@@ -902,7 +902,7 @@ fn generateGodotCore(config: CodegenConfig, ctx: *CodegenContext) !void {
         const constructor_code =
             \\pub fn init{0s}() {0s} {{
             \\    return .{{
-            \\        .godot_object = godot.classdbConstructObject(@ptrCast(godot.getClassName({0s})))
+            \\        .godot_object = godot.core.classdbConstructObject(@ptrCast(godot.getClassName({0s})))
             \\    }};
             \\}}
         ;
