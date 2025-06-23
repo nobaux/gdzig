@@ -17,11 +17,7 @@ fn generateGlobalEnums(ctx: *Context) !void {
 
     try ctx.all_classes.append(ctx.allocator, "global");
 
-    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ ctx.config.output, "/global.zig" });
-    defer ctx.allocator.free(file_name);
-
-    const cwd = std.fs.cwd();
-    try cwd.writeFile(.{ .sub_path = file_name, .data = b.getWritten() });
+    try ctx.config.output.writeFile(.{ .sub_path = "global.zig", .data = b.getWritten() });
 }
 
 fn generateGlobalEnum(b: *StreamBuilder, @"enum": GodotApi.GlobalEnum) !void {
@@ -46,10 +42,10 @@ fn generateTypeEnd(b: *StreamBuilder, name: []const u8, ctx: *Context) !void {
     const code = try generateImports(b, name, ctx);
     defer ctx.allocator.free(code);
 
-    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ ctx.config.output, "/", name, ".zig" });
+    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ name, ".zig" });
     defer ctx.allocator.free(file_name);
-    const cwd = std.fs.cwd();
-    try cwd.writeFile(.{ .sub_path = file_name, .data = code });
+
+    try ctx.config.output.writeFile(.{ .sub_path = file_name, .data = code });
 }
 
 fn generateBuiltins(ctx: *Context) !void {
@@ -169,7 +165,7 @@ fn generateBuiltinConstructors(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx
 }
 
 fn generateBuiltinMethods(b: *StreamBuilder, builtin: GodotApi.Builtin, ctx: *Context) !void {
-    var generated_method_map: types.StringVoidMap = .empty;
+    var generated_method_map: StringHashMap(void) = .empty;
     defer generated_method_map.deinit(ctx.allocator);
 
     try generateMethods(b, builtin, &generated_method_map, ctx);
@@ -247,14 +243,14 @@ fn generateClassInit(b: *StreamBuilder, class_name: []const u8) !void {
 }
 
 fn generateClassMethods(b: *StreamBuilder, class: GodotApi.Class, class_name: []const u8, ctx: *Context) !void {
-    var generated_method_map: types.StringVoidMap = .empty;
+    var generated_method_map: StringHashMap(void) = .empty;
     defer generated_method_map.deinit(ctx.allocator);
 
     try generateClassSingleton(b, class_name, &generated_method_map, ctx);
     try generateMethods(b, class, &generated_method_map, ctx);
 }
 
-fn generateClassSingleton(b: *StreamBuilder, name: []const u8, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
+fn generateClassSingleton(b: *StreamBuilder, name: []const u8, generated_method_map: *StringHashMap(void), ctx: *Context) !void {
     if (ctx.isSingleton(name)) {
         try b.printLine(0,
             \\var instance: ?{0s} = null;
@@ -270,7 +266,7 @@ fn generateClassSingleton(b: *StreamBuilder, name: []const u8, generated_method_
     }
 }
 
-fn generateMethods(b: *StreamBuilder, @"type": anytype, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
+fn generateMethods(b: *StreamBuilder, @"type": anytype, generated_method_map: *StringHashMap(void), ctx: *Context) !void {
     const class_name = ctx.correctName(@"type".name);
     const enum_type_name = ctx.getVariantTypeName(class_name);
     const is_builtin_class = @TypeOf(@"type") == GodotApi.Builtin;
@@ -756,17 +752,14 @@ fn generateCore(ctx: *Context) !void {
 
     try cb.writeLine(0, lb.getWritten());
 
-    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ ctx.config.output, "/core.zig" });
-    defer ctx.allocator.free(file_name);
-    const cwd = std.fs.cwd();
-    try cwd.writeFile(.{ .sub_path = file_name, .data = cb.getWritten() });
+    try ctx.config.output.writeFile(.{ .sub_path = "core.zig", .data = cb.getWritten() });
 }
 
 fn generateImports(b: *StreamBuilder, class_name: []const u8, ctx: *Context) ![]const u8 {
     //handle imports
     var imp_builder = StreamBuilder.init(ctx.allocator);
     defer imp_builder.deinit();
-    var imported_class_map: types.StringBoolMap = .empty;
+    var imported_class_map: StringHashMap(bool) = .empty;
     defer imported_class_map.deinit(ctx.allocator);
 
     //filter types which are no need to be imported
@@ -822,24 +815,28 @@ fn generateUtilityFunctions(ctx: *Context) !void {
     const code = try generateImports(&b, "", ctx);
     defer ctx.allocator.free(code);
 
-    const file_name = try std.mem.concat(ctx.allocator, u8, &.{ ctx.config.output, "/util.zig" });
-    defer ctx.allocator.free(file_name);
-    const cwd = std.fs.cwd();
-    try cwd.writeFile(.{ .sub_path = file_name, .data = code });
+    try ctx.config.output.writeFile(.{ .sub_path = "util.zig", .data = code });
 }
+
+pub const ProcType = enum {
+    UtilityFunction,
+    BuiltinMethod,
+    ClassMethod,
+    Constructor,
+    Destructor,
+};
 
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 const fs = std.fs;
+const StringHashMap = std.StringHashMapUnmanaged;
 
 const case = @import("case");
 const gdextension = @import("gdextension");
 
 const Context = @import("Context.zig");
-const ProcType = @import("enums.zig").ProcType;
 const GodotApi = @import("GodotApi.zig");
 const packed_array = @import("packed_array.zig");
 const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
-const types = @import("types.zig");
-const CodegenConfig = types.CodegenConfig;
+const Config = @import("Config.zig");
 const util = @import("util.zig");

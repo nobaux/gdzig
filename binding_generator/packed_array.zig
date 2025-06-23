@@ -2,10 +2,9 @@ const std = @import("std");
 const mzvr = @import("mvzr");
 const GodotApi = @import("GodotApi.zig");
 const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
-const types = @import("types.zig");
 const case = @import("case");
 
-const CodegenConfig = types.CodegenConfig;
+const Config = @import("Config.zig");
 const Context = @import("Context.zig");
 
 const PackedArrayType = enum {
