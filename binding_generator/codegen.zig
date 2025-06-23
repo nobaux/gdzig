@@ -1,130 +1,18 @@
-const std = @import("std");
-const Allocator = std.mem.Allocator;
-
-const case = @import("case");
-const gdextension = @import("gdextension");
-
-const Context = @import("Context.zig");
-const enums = @import("enums.zig");
-const ProcType = enums.ProcType;
-const GdExtensionApi = @import("GdExtensionApi.zig");
-const packed_array = @import("packed_array.zig");
-const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
-const types = @import("types.zig");
-const CodegenConfig = types.CodegenConfig;
-
-const string = []const u8;
-const keywords = std.StaticStringMap(void).initComptime(.{
-    .{"addrspace"},
-    .{"align"},
-    .{"and"},
-    .{"asm"},
-    .{"async"},
-    .{"await"},
-    .{"break"},
-    .{"catch"},
-    .{"comptime"},
-    .{"const"},
-    .{"continue"},
-    .{"defer"},
-    .{"else"},
-    .{"enum"},
-    .{"errdefer"},
-    .{"error"},
-    .{"export"},
-    .{"extern"},
-    .{"for"},
-    .{"if"},
-    .{"inline"},
-    .{"noalias"},
-    .{"noinline"},
-    .{"nosuspend"},
-    .{"opaque"},
-    .{"or"},
-    .{"orelse"},
-    .{"packed"},
-    .{"anyframe"},
-    .{"pub"},
-    .{"resume"},
-    .{"return"},
-    .{"linksection"},
-    .{"callconv"},
-    .{"struct"},
-    .{"suspend"},
-    .{"switch"},
-    .{"test"},
-    .{"threadlocal"},
-    .{"try"},
-    .{"union"},
-    .{"unreachable"},
-    .{"usingnamespace"},
-    .{"var"},
-    .{"volatile"},
-    .{"allowzero"},
-    .{"while"},
-    .{"anytype"},
-    .{"fn"},
-});
-
-const base_type_map = std.StaticStringMap(string).initComptime(.{
-    .{ "int", "i64" },
-    .{ "int8", "i8" },
-    .{ "uint8", "u8" },
-    .{ "int16", "i16" },
-    .{ "uint16", "u16" },
-    .{ "int32", "i32" },
-    .{ "uint32", "u32" },
-    .{ "int64", "i64" },
-    .{ "uint64", "u64" },
-    .{ "float", "f32" },
-    .{ "double", "f64" },
-});
-
-const builtin_type_map = std.StaticStringMap(void).initComptime(.{
-    .{"i8"},
-    .{"u8"},
-    .{"i16"},
-    .{"u16"},
-    .{"i32"},
-    .{"u32"},
-    .{"i64"},
-    .{"u64"},
-    .{"bool"},
-    .{"f32"},
-    .{"f64"},
-    .{"c_int"},
-});
-
-const native_type_map = std.StaticStringMap(void).initComptime(.{
-    .{"Vector2"},
-    .{"Vector2i"},
-    .{"Vector3"},
-    .{"Vector3i"},
-    .{"Vector4"},
-    .{"Vector4i"},
-});
-
-const func_case: case.Case = .camel;
-
-pub fn generate(allocator: Allocator, gdapi: GdExtensionApi, config: CodegenConfig) !void {
-    var ctx = Context{ .allocator = allocator, .api = gdapi };
+pub fn generate(allocator: Allocator, api: GdExtensionApi, config: CodegenConfig) !void {
+    var ctx = try Context.build(allocator, api, config);
     defer ctx.deinit();
 
-    try parseGdExtensionHeaders(config, &ctx);
-    try parseClassSizes(gdapi, config, &ctx);
-    try parseSingletons(gdapi, config, &ctx);
-
-    try generateGlobalEnums(gdapi, config, &ctx);
-    try generateUtilityFunctions(gdapi, config, &ctx);
-    try generateClasses(gdapi, .builtin, config, &ctx);
-    try generateClasses(gdapi, .class, config, &ctx);
+    try generateGlobalEnums(api, config, &ctx);
+    try generateUtilityFunctions(api, config, &ctx);
+    try generateBuiltins(api, config, &ctx);
+    try generateClasses(api, config, &ctx);
     try generateGodotCore(config, &ctx);
 }
 
-pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: string, func_name: string, return_type_orig: string, comptime proc_type: ProcType, ctx: *Context) !void {
-    const zig_func_name = getZigFuncName(func_name, ctx);
+fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: []const u8, func_name: []const u8, return_type_orig: []const u8, comptime proc_type: ProcType, ctx: *Context) !void {
+    const zig_func_name = ctx.getZigFuncName(func_name);
 
-    const return_type: string = blk: {
+    const return_type: []const u8 = blk: {
         if (std.mem.startsWith(u8, return_type_orig, "*")) {
             break :blk try std.fmt.allocPrint(ctx.allocator, "?{s}", .{return_type_orig});
         } else {
@@ -141,10 +29,10 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
 
     if (proc_type == .Constructor) {
         var buf: [256]u8 = undefined;
-        const atypes = getArgumentsTypes(fn_node, &buf, ctx);
+        const atypes = ctx.getArgumentsTypes(fn_node, &buf);
         if (atypes.len > 0) {
             const temp_atypes_func_name = try std.fmt.allocPrint(ctx.allocator, "{s}_from_{s}", .{ func_name, atypes });
-            const atypes_func_name = getZigFuncName(temp_atypes_func_name, ctx);
+            const atypes_func_name = ctx.getZigFuncName(temp_atypes_func_name);
 
             try code_builder.print(0, "pub fn {s}(", .{atypes_func_name});
         } else {
@@ -158,9 +46,9 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
     const is_static = (proc_type == .BuiltinClassMethod or proc_type == .EngineClassMethod) and fn_node.is_static;
     const is_vararg = proc_type != .Constructor and proc_type != .Destructor and fn_node.is_vararg;
 
-    var args = std.ArrayList(string).init(ctx.allocator);
+    var args = std.ArrayList([]const u8).init(ctx.allocator);
     defer args.deinit();
-    var arg_types = std.ArrayList(string).init(ctx.allocator);
+    var arg_types = std.ArrayList([]const u8).init(ctx.allocator);
     defer arg_types.deinit();
     const need_return = !std.mem.eql(u8, return_type, "void");
     var is_first_arg = true;
@@ -184,21 +72,21 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         if (fn_node.arguments) |as| {
             for (as, 0..) |a, i| {
                 _ = i;
-                const arg_type = correctType(a.type, "", ctx);
+                const arg_type = ctx.correctType(a.type, "");
                 const arg_name = try std.fmt.allocPrint(ctx.allocator, "{s}{s}", .{ a.name, arg_name_postfix });
                 // //constructors use Variant to store each argument, which use double/int64_t for float/int internally
                 // if (proc_type == .Constructor) {
                 //     if (std.mem.eql(u8, arg_type, "f32")) {}
                 // }
-                try addDependType(arg_type, ctx);
+                try ctx.addDependType(arg_type);
                 if (!is_first_arg) {
                     try code_builder.write(0, ", ");
                 }
                 is_first_arg = false;
-                if (isEngineClass(arg_type, ctx)) {
+                if (ctx.isEngineClass(arg_type)) {
                     try code_builder.print(0, "{s}: anytype", .{arg_name});
                 } else {
-                    if ((proc_type != .Constructor or !isStringType(class_name)) and (isStringType(arg_type))) {
+                    if ((proc_type != .Constructor or !util.isStringType(class_name)) and (util.isStringType(arg_type))) {
                         try code_builder.print(0, "{s}: anytype", .{arg_name});
                     } else {
                         try code_builder.print(0, "{s}: {s}", .{ arg_name, arg_type });
@@ -223,7 +111,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
 
     try code_builder.printLine(0, ") {s} {{", .{return_type});
     if (need_return) {
-        try addDependType(return_type, ctx);
+        try ctx.addDependType(return_type);
         if (return_type[0] == '?') {
             try code_builder.printLine(1, "var result:{s} = null;", .{return_type});
         } else {
@@ -231,14 +119,14 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         }
     }
 
-    var arg_array: string = "null";
-    var arg_count: string = "0";
+    var arg_array: []const u8 = "null";
+    var arg_count: []const u8 = "0";
 
     if (is_vararg) {
         try code_builder.writeLine(1, "const fields = @import(\"std\").meta.fields(@TypeOf(varargs));");
         try code_builder.printLine(1, "var args:[fields.len + {d}]*const godot.Variant = undefined;", .{args.items.len - 1});
         for (0..args.items.len - 1) |i| {
-            if (isStringType(arg_types.items[i])) {
+            if (util.isStringType(arg_types.items[i])) {
                 try code_builder.printLine(1, "args[{d}] = &godot.Variant.initFrom(godot.core.String.initFromLatin1Chars({s}));", .{ i, args.items[i] });
             } else {
                 try code_builder.printLine(1, "args[{d}] = &godot.Variant.initFrom({s});", .{ i, args.items[i] });
@@ -253,13 +141,13 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
     } else if (args.items.len > 0) {
         try code_builder.printLine(1, "var args:[{d}]godot.c.GDExtensionConstTypePtr = undefined;", .{args.items.len});
         for (args.items, arg_types.items, 0..) |arg, arg_type, i| {
-            if (isEngineClass(arg_types.items[i], ctx)) {
+            if (ctx.isEngineClass(arg_types.items[i])) {
                 try code_builder.printLine(1, "if(@typeInfo(@TypeOf({1s})) == .@\"struct\") {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr(&{1s})); }}", .{ i, arg });
                 try code_builder.printLine(1, "else if(@typeInfo(@TypeOf({1s})) == .optional) {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr(&{1s}.?)); }}", .{ i, arg });
                 try code_builder.printLine(1, "else if(@typeInfo(@TypeOf({1s})) == .pointer) {{ args[{0d}] = @ptrCast(godot.getGodotObjectPtr({1s})); }}", .{ i, arg });
                 try code_builder.printLine(1, "else {{ args[{0d}] = null; }}", .{i});
             } else {
-                if ((proc_type != .Constructor or !isStringType(class_name)) and (isStringType(arg_type))) {
+                if ((proc_type != .Constructor or !util.isStringType(class_name)) and (util.isStringType(arg_type))) {
                     try code_builder.printLine(1, "if(@TypeOf({2s}) == {1s}) {{ args[{0d}] = @ptrCast(&{2s}); }} else {{ args[{0d}] = @ptrCast(&{1s}.initFromLatin1Chars({2s})); }}", .{ i, arg_type, arg });
                 } else {
                     try code_builder.printLine(1, "args[{d}] = @ptrCast(&{s});", .{ i, arg });
@@ -270,7 +158,7 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
         arg_count = "args.len";
     }
 
-    const enum_type_name = getVariantTypeName(class_name, ctx);
+    const enum_type_name = ctx.getVariantTypeName(class_name);
     const result_string = if (need_return) "@ptrCast(&result)" else "null";
 
     switch (proc_type) {
@@ -305,10 +193,10 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
                     }
                 }
             } else {
-                if (isEngineClass(return_type, ctx)) {
+                if (ctx.isEngineClass(return_type)) {
                     try code_builder.writeLine(1, "var godot_object:?*anyopaque = null;");
                     try code_builder.printLine(1, "godot.core.objectMethodBindPtrcall(method, {s}, {s}, @ptrCast(&godot_object));", .{ self_ptr, arg_array });
-                    try code_builder.printLine(1, "result = {s}{{ .godot_object = godot_object }};", .{childType(return_type)});
+                    try code_builder.printLine(1, "result = {s}{{ .godot_object = godot_object }};", .{util.childType(return_type)});
                 } else {
                     try code_builder.printLine(1, "godot.core.objectMethodBindPtrcall(method, {s}, {s}, {s});", .{ self_ptr, arg_array, result_string });
                 }
@@ -338,8 +226,8 @@ pub fn generateProc(code_builder: *StreamBuilder, fn_node: anytype, class_name: 
     try code_builder.writeLine(0, "}");
 }
 
-pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *StreamBuilder, ctx: *Context) !void {
-    const class_name = correctName(class_node.name, ctx);
+fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *StreamBuilder, ctx: *Context) !void {
+    const class_name = ctx.correctName(class_node.name);
 
     const string_class_extra_constructors_code =
         \\pub fn initFromLatin1Chars(chars:[]const u8) Self{
@@ -405,7 +293,7 @@ pub fn generateConstructor(class_node: GdExtensionApi.Builtin, code_builder: *St
     }
 }
 
-pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: *StreamBuilder, ctx: *Context) !void {
+fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: *StreamBuilder, ctx: *Context) !void {
     const class_name = try std.fmt.allocPrint(ctx.allocator, "godot.core.{s}", .{class_node.getClassName()});
     defer ctx.allocator.free(class_name);
 
@@ -415,7 +303,7 @@ pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: 
                 for (methods) |method| {
                     if (method.isPrivate()) continue;
 
-                    const return_type = getReturnType(.{ .builtin = method }, ctx);
+                    const return_type = ctx.getReturnType(.{ .builtin = method });
                     try code_builder.printLine(1, "/// {s} builtin method: {s}", .{ builtin_class.name, method.name });
                     try generateProc(code_builder, method, class_name, method.name, return_type, .BuiltinClassMethod, ctx);
                 }
@@ -426,7 +314,7 @@ pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: 
                 for (methods) |method| {
                     if (method.isPrivate()) continue;
 
-                    const return_type = getReturnType(.{ .class = method }, ctx);
+                    const return_type = ctx.getReturnType(.{ .class = method });
                     try code_builder.printLine(1, "/// {s} class method: {s}", .{ class.name, method.name });
                     try generateProc(code_builder, method, class_name, method.name, return_type, .EngineClassMethod, ctx);
                 }
@@ -435,16 +323,9 @@ pub fn generateVirtualMethods(class_node: GdExtensionApi.GdClass, code_builder: 
     }
 }
 
-fn getReturnType(method: GdExtensionApi.GdMethod, ctx: *Context) []const u8 {
-    return switch (method) {
-        .builtin => |bc| correctType(bc.return_type, "", ctx),
-        .class => |cls| if (cls.return_value) |ret| correctType(ret.type, ret.meta, ctx) else "void",
-    };
-}
-
-pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
-    const class_name = correctName(class_node.name, ctx);
-    const enum_type_name = getVariantTypeName(class_name, ctx);
+fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
+    const class_name = ctx.correctName(class_node.name);
+    const enum_type_name = ctx.getVariantTypeName(class_name);
 
     const is_builtin_class = @TypeOf(class_node) == GdExtensionApi.Builtin;
     const proc_type = if (is_builtin_class) ProcType.BuiltinClassMethod else ProcType.EngineClassMethod;
@@ -456,19 +337,19 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
         for (ms) |m| {
             const func_name = m.name;
 
-            const zig_func_name = getZigFuncName(func_name, ctx);
+            const zig_func_name = ctx.getZigFuncName(func_name);
 
             if (@hasField(@TypeOf(m), "is_virtual") and m.is_virtual) {
                 if (m.arguments) |as| {
                     for (as) |a| {
-                        const arg_type = correctType(a.type, "", ctx);
-                        if (isEngineClass(arg_type, ctx) or isRefCounted(arg_type, ctx)) {
+                        const arg_type = ctx.correctType(a.type, "");
+                        if (ctx.isEngineClass(arg_type) or ctx.isRefCounted(arg_type)) {
                             //std.debug.print("engine class arg type:  {s}::{s}({s})\n", .{ class_name, m.name, arg_type });
                         }
                     }
                 }
 
-                const casecmp_to_func_name = getZigFuncName("casecmp_to", ctx);
+                const casecmp_to_func_name = ctx.getZigFuncName("casecmp_to");
 
                 try vf_builder.printLine(1, "if (@as(*StringName, @ptrCast(@constCast(p_name))).{1s}(\"{0s}\") == 0 and @hasDecl(T, \"{0s}\")) {{", .{
                     func_name,
@@ -495,9 +376,9 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
             } else {
                 const return_type = blk: {
                     if (is_builtin_class) {
-                        break :blk correctType(m.return_type, "", ctx);
+                        break :blk ctx.correctType(m.return_type, "");
                     } else if (m.return_value) |ret| {
-                        break :blk correctType(ret.type, ret.meta, ctx);
+                        break :blk ctx.correctType(ret.type, ret.meta);
                     } else {
                         break :blk "void";
                     }
@@ -533,10 +414,10 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
     if (@hasField(@TypeOf(class_node), "members")) {
         if (class_node.members) |ms| {
             for (ms) |m| {
-                const member_type = correctType(m.type, "", ctx);
+                const member_type = ctx.correctType(m.type, "");
                 //getter
                 const temp_getter_name = try std.fmt.allocPrint(ctx.allocator, "get_{s}", .{m.name});
-                const getter_name = getZigFuncName(temp_getter_name, ctx);
+                const getter_name = ctx.getZigFuncName(temp_getter_name);
 
                 if (!generated_method_map.contains(getter_name)) {
                     try generated_method_map.putNoClobber(ctx.allocator, getter_name, {});
@@ -557,7 +438,7 @@ pub fn generateMethods(class_node: anytype, code_builder: *StreamBuilder, genera
 
                 //setter
                 const temp_setter_name = try std.fmt.allocPrint(ctx.allocator, "set_{s}", .{m.name});
-                const setter_name = getZigFuncName(temp_setter_name, ctx);
+                const setter_name = ctx.getZigFuncName(temp_setter_name);
 
                 if (!generated_method_map.contains(setter_name)) {
                     try generated_method_map.putNoClobber(ctx.allocator, setter_name, {});
@@ -617,45 +498,8 @@ fn generateGlobalEnums(api: GdExtensionApi, config: CodegenConfig, ctx: *Context
     try cwd.writeFile(.{ .sub_path = file_name, .data = code_builder.getWritten() });
 }
 
-fn parseEngineClasses(api: GdExtensionApi, ctx: *Context) !void {
-    for (api.classes) |bc| {
-        // TODO: why?
-        if (std.mem.eql(u8, bc.name, "ClassDB")) {
-            continue;
-        }
-
-        try ctx.engine_classes.put(ctx.allocator, bc.name, bc.is_refcounted);
-    }
-
-    for (api.native_structures) |ns| {
-        try ctx.engine_classes.put(ctx.allocator, ns.name, false);
-    }
-}
-
-fn getArgumentsTypes(fn_node: GdExtensionApi.Builtin.Constructor, buf: []u8, ctx: *Context) string {
-    var pos: usize = 0;
-    if (@hasField(@TypeOf(fn_node), "arguments")) {
-        if (fn_node.arguments) |as| {
-            for (as, 0..) |a, i| {
-                _ = i;
-                const arg_type = correctType(a.type, "", ctx);
-                if (arg_type[0] == '*' or arg_type[0] == '?') {
-                    std.mem.copyForwards(u8, buf[pos..], arg_type[1..]);
-                    buf[pos] = std.ascii.toUpper(buf[pos]);
-                    pos += arg_type.len - 1;
-                } else {
-                    std.mem.copyForwards(u8, buf[pos..], arg_type);
-                    buf[pos] = std.ascii.toUpper(buf[pos]);
-                    pos += arg_type.len;
-                }
-            }
-        }
-    }
-    return buf[0..pos];
-}
-
 fn generateSingletonMethods(class_name: []const u8, code_builder: *StreamBuilder, generated_method_map: *types.StringVoidMap, ctx: *Context) !void {
-    if (isSingleton(class_name, ctx)) {
+    if (ctx.isSingleton(class_name)) {
         const singleton_code =
             \\var instance: ?{0s} = null;
             \\pub fn getSingleton() {0s} {{
@@ -683,7 +527,7 @@ fn initializeClassGeneration(class_name: []const u8, description: ?[]const u8, c
 fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
     try code_builder.printLine(0, "}};", .{});
 
-    const code = try addImports(class_name, code_builder, ctx);
+    const code = try generateImports(class_name, code_builder, ctx);
     defer ctx.allocator.free(code);
 
     const file_name = try std.mem.concat(ctx.allocator, u8, &.{ config.output, "/", class_name, ".zig" });
@@ -692,7 +536,7 @@ fn finalizeClassGeneration(class_name: []const u8, code_builder: *StreamBuilder,
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
 }
 
-pub fn generateBuiltinClassMethods(bc: GdExtensionApi.Builtin, class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) !void {
+fn generateBuiltinMethods(bc: GdExtensionApi.Builtin, class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) !void {
     var generated_method_map: types.StringVoidMap = .empty;
     defer generated_method_map.deinit(ctx.allocator);
 
@@ -709,10 +553,10 @@ fn generateEngineClassMethods(bc: GdExtensionApi.Class, class_name: []const u8, 
     try generateMethods(bc, code_builder, &generated_method_map, ctx);
 }
 
-fn generateBuiltinClass(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
+fn generateBuiltin(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
     const class_name = bc.name;
 
-    if (shouldSkipClass(class_name)) {
+    if (util.shouldSkipClass(class_name)) {
         return;
     }
 
@@ -720,7 +564,7 @@ fn generateBuiltinClass(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder
 
     try initializeClassGeneration(class_name, bc.description orelse bc.brief_description, code_builder, ctx);
 
-    if (isPackedArray(bc)) {
+    if (util.isPackedArray(bc)) {
         try packed_array.generate(bc, code_builder, config, ctx);
     } else {
         try generateBuiltinClassField(class_name, code_builder, ctx);
@@ -728,13 +572,9 @@ fn generateBuiltinClass(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder
 
     try generateBuiltinEnums(bc, code_builder);
     try generateBuiltinConstants(bc, code_builder);
-    try generateBuiltinClassMethods(bc, class_name, code_builder, ctx);
+    try generateBuiltinMethods(bc, class_name, code_builder, ctx);
 
     try finalizeClassGeneration(class_name, code_builder, config, ctx);
-}
-
-fn isPackedArray(bc: GdExtensionApi.Builtin) bool {
-    return packed_array.regex.isMatch(bc.name);
 }
 
 fn generateBuiltinClassField(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) !void {
@@ -774,10 +614,10 @@ fn generateInstanceBindingCallbacks(class_name: []const u8, code_builder: *Strea
     try code_builder.printLine(0, callbacks_code, .{class_name});
 }
 
-pub fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
+fn generateClass(bc: GdExtensionApi.Class, code_builder: *StreamBuilder, config: CodegenConfig, ctx: *Context) !void {
     const class_name = bc.name;
 
-    if (shouldSkipClass(class_name)) {
+    if (util.shouldSkipClass(class_name)) {
         return;
     }
 
@@ -814,21 +654,21 @@ fn generateBasicInit(code_builder: *StreamBuilder, class_name: []const u8) !void
     try code_builder.printLine(1, constructor_code, .{class_name});
 }
 
-fn generateClasses(api: GdExtensionApi, comptime of_type: ClassType, config: CodegenConfig, ctx: *Context) !void {
-    const class_defs = if (of_type == .builtin) api.builtin_classes else api.classes;
+fn generateBuiltins(api: GdExtensionApi, config: CodegenConfig, ctx: *Context) !void {
     var code_builder = StreamBuilder.init(ctx.allocator);
     defer code_builder.deinit();
 
-    if (of_type != .builtin) {
-        try parseEngineClasses(api, ctx);
+    for (api.builtin_classes) |bc| {
+        try generateBuiltin(bc, &code_builder, config, ctx);
     }
+}
 
-    for (class_defs) |bc| {
-        if (of_type == .builtin) {
-            try generateBuiltinClass(bc, &code_builder, config, ctx);
-        } else {
-            try generateClass(bc, &code_builder, config, ctx);
-        }
+fn generateClasses(api: GdExtensionApi, config: CodegenConfig, ctx: *Context) !void {
+    var code_builder = StreamBuilder.init(ctx.allocator);
+    defer code_builder.deinit();
+
+    for (api.classes) |bc| {
+        try generateClass(bc, &code_builder, config, ctx);
     }
 }
 
@@ -907,7 +747,7 @@ fn generateGodotCore(config: CodegenConfig, ctx: *Context) !void {
             \\    }};
             \\}}
         ;
-        if (!isSingleton(cls, ctx)) {
+        if (!ctx.isSingleton(cls)) {
             try loader_builder.printLine(0, constructor_code, .{cls});
         }
     }
@@ -920,149 +760,7 @@ fn generateGodotCore(config: CodegenConfig, ctx: *Context) !void {
     try cwd.writeFile(.{ .sub_path = file_name, .data = code_builder.getWritten() });
 }
 
-fn getZigFuncName(godot_func_name: []const u8, ctx: *Context) []const u8 {
-    const result = ctx.func_names.getOrPut(ctx.allocator, godot_func_name) catch unreachable;
-
-    if (!result.found_existing) {
-        result.value_ptr.* = correctName(case.allocTo(ctx.allocator, func_case, godot_func_name) catch unreachable, ctx);
-    }
-
-    return result.value_ptr.*;
-}
-
-fn isStringType(type_name: string) bool {
-    return std.mem.eql(u8, type_name, "String") or std.mem.eql(u8, type_name, "StringName");
-}
-
-fn childType(type_name: string) string {
-    var child_type = type_name;
-    while (child_type[0] == '?' or child_type[0] == '*') {
-        child_type = child_type[1..];
-    }
-    return child_type;
-}
-
-fn isRefCounted(type_name: string, ctx: *Context) bool {
-    const real_type = childType(type_name);
-    if (ctx.engine_classes.get(real_type)) |v| {
-        return v;
-    }
-    return false;
-}
-
-fn isEngineClass(type_name: string, ctx: *Context) bool {
-    const real_type = childType(type_name);
-    return std.mem.eql(u8, real_type, "Object") or ctx.engine_classes.contains(real_type);
-}
-
-fn isSingleton(class_name: string, ctx: *Context) bool {
-    return ctx.singletons.contains(class_name);
-}
-
-fn isBitfield(type_name: string) bool {
-    return std.mem.startsWith(u8, type_name, "bitfield::");
-}
-
-fn isEnum(type_name: string) bool {
-    return std.mem.startsWith(u8, type_name, "enum::") or isBitfield(type_name);
-}
-
-fn getEnumClass(type_name: string) string {
-    const pos = std.mem.lastIndexOf(u8, type_name, ".");
-    if (pos) |p| {
-        if (isBitfield(type_name)) {
-            return type_name[10..p];
-        } else {
-            return type_name[6..p];
-        }
-    } else {
-        return "GlobalConstants";
-    }
-}
-
-fn getEnumName(type_name: string) string {
-    const pos = std.mem.lastIndexOf(u8, type_name, ":");
-    if (pos) |p| {
-        return type_name[p + 1 ..];
-    } else {
-        return type_name;
-    }
-}
-
-fn getVariantTypeName(class_name: string, ctx: *Context) string {
-    var buf: [256]u8 = undefined;
-    const nnn = toSnakeCase(class_name, &buf);
-    return std.fmt.allocPrint(ctx.allocator, "godot.c.GDEXTENSION_VARIANT_TYPE_{s}", .{std.ascii.upperString(&buf, nnn)}) catch unreachable;
-}
-
-fn addDependType(type_name: string, ctx: *Context) !void {
-    var depend_type = childType(type_name);
-
-    if (std.mem.startsWith(u8, depend_type, "TypedArray")) {
-        depend_type = depend_type[11 .. depend_type.len - 1];
-        try ctx.depends.append(ctx.allocator, "Array");
-    }
-
-    if (std.mem.startsWith(u8, depend_type, "Ref(")) {
-        depend_type = depend_type[4 .. depend_type.len - 1];
-        try ctx.depends.append(ctx.allocator, "Ref");
-    }
-
-    const pos = std.mem.indexOf(u8, depend_type, ".");
-    if (pos) |p| {
-        try ctx.depends.append(ctx.allocator, depend_type[0..p]);
-    } else {
-        try ctx.depends.append(ctx.allocator, depend_type);
-    }
-}
-
-fn correctType(type_name: string, meta: string, ctx: *Context) string {
-    var correct_type = if (meta.len > 0) meta else type_name;
-    if (correct_type.len == 0) return "void";
-
-    if (std.mem.eql(u8, correct_type, "float")) {
-        return "f64";
-    } else if (std.mem.eql(u8, correct_type, "int")) {
-        return "i64";
-    } else if (std.mem.eql(u8, correct_type, "Nil")) {
-        return "Variant";
-    } else if (base_type_map.has(correct_type)) {
-        return base_type_map.get(correct_type).?;
-    } else if (std.mem.startsWith(u8, correct_type, "typedarray::")) {
-        //simplified to just use array instead
-        return "Array";
-    } else if (isEnum(correct_type)) {
-        const cls = getEnumClass(correct_type);
-        if (std.mem.eql(u8, cls, "GlobalConstants")) {
-            return std.fmt.allocPrint(ctx.allocator, "global.{s}", .{getEnumName(correct_type)}) catch unreachable;
-        } else {
-            return getEnumName(correct_type);
-        }
-    }
-
-    if (std.mem.startsWith(u8, correct_type, "const ")) {
-        correct_type = correct_type[6..];
-    }
-
-    if (isRefCounted(correct_type, ctx)) {
-        return std.fmt.allocPrint(ctx.allocator, "?{s}", .{correct_type}) catch unreachable;
-    } else if (isEngineClass(correct_type, ctx)) {
-        return std.fmt.allocPrint(ctx.allocator, "?{s}", .{correct_type}) catch unreachable;
-    } else if (correct_type[correct_type.len - 1] == '*') {
-        return std.fmt.allocPrint(ctx.allocator, "?*{s}", .{correct_type[0 .. correct_type.len - 1]}) catch unreachable;
-    }
-    return correct_type;
-}
-
-fn correctName(name: string, ctx: *Context) string {
-    if (keywords.has(name)) {
-        return std.fmt.allocPrint(ctx.allocator, "@\"{s}\"", .{name}) catch unreachable;
-    }
-
-    return name;
-}
-
-fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) ![]const u8 {
+fn generateImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Context) ![]const u8 {
     //handle imports
     var imp_builder = StreamBuilder.init(ctx.allocator);
     defer imp_builder.deinit();
@@ -1091,7 +789,7 @@ fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Contex
     for (ctx.depends.items) |d| {
         if (std.mem.eql(u8, d, class_name)) continue;
         if (imported_class_map.contains(d)) continue;
-        if (builtin_type_map.has(d)) continue;
+        if (util.isBuiltinType(d)) continue;
         try imported_class_map.putNoClobber(ctx.allocator, d, true);
         if (std.mem.startsWith(u8, d, "Vector")) {
             try imp_builder.printLine(0, "const {0s} = godot.{0s};", .{d});
@@ -1114,30 +812,17 @@ fn generateUtilityFunctions(api: GdExtensionApi, config: CodegenConfig, ctx: *Co
     ctx.depends.clearRetainingCapacity();
 
     for (api.utility_functions) |f| {
-        const return_type = correctType(f.return_type, "", ctx);
+        const return_type = ctx.correctType(f.return_type, "");
         try generateProc(&code_builder, f, "", f.name, return_type, .UtilityFunction, ctx);
     }
 
-    const code = try addImports("", &code_builder, ctx);
+    const code = try generateImports("", &code_builder, ctx);
     defer ctx.allocator.free(code);
 
     const file_name = try std.mem.concat(ctx.allocator, u8, &.{ config.output, "/util.zig" });
     defer ctx.allocator.free(file_name);
     const cwd = std.fs.cwd();
     try cwd.writeFile(.{ .sub_path = file_name, .data = code });
-}
-
-const ClassType = enum {
-    class,
-    builtin,
-};
-
-fn shouldSkipClass(class_name: []const u8) bool {
-    return std.mem.eql(u8, class_name, "bool") or
-        std.mem.eql(u8, class_name, "Nil") or
-        std.mem.eql(u8, class_name, "int") or
-        std.mem.eql(u8, class_name, "float") or
-        native_type_map.has(class_name);
 }
 
 fn generateBuiltinEnums(bc: GdExtensionApi.Builtin, code_builder: *StreamBuilder) !void {
@@ -1167,7 +852,7 @@ fn generateBuiltinConstants(bc: GdExtensionApi.Builtin, code_builder: *StreamBui
     if (bc.constants) |cs| {
         for (cs) |c| {
             _ = c; // TODO: parse value string
-            //try code_builder.printLine(0, "pub const {s}:{s} = {s};", .{ c.name, correctType(c.type, ""), c.value });
+            //try code_builder.printLine(0, "pub const {s}:{s} = {s};", .{ c.name, ctx.correctType(c.type, ""), c.value });
         }
     }
 }
@@ -1180,124 +865,18 @@ fn generateEngineConstants(bc: GdExtensionApi.Class, code_builder: *StreamBuilde
     }
 }
 
-fn parseClassSizes(api: GdExtensionApi, config: CodegenConfig, ctx: *Context) !void {
-    for (api.builtin_class_sizes) |bcs| {
-        if (!std.mem.eql(u8, bcs.build_configuration, config.conf)) {
-            continue;
-        }
+const std = @import("std");
+const Allocator = std.mem.Allocator;
 
-        for (bcs.sizes) |sz| {
-            try ctx.class_sizes.put(ctx.allocator, sz.name, sz.size);
-        }
-    }
-}
+const case = @import("case");
+const gdextension = @import("gdextension");
 
-fn parseSingletons(api: GdExtensionApi, config: CodegenConfig, ctx: *Context) !void {
-    _ = config;
-    for (api.singletons) |sg| {
-        try ctx.singletons.put(ctx.allocator, sg.name, sg.type);
-    }
-}
-
-fn parseGdExtensionHeaders(config: CodegenConfig, ctx: *Context) !void {
-    const header_file = try std.fs.openFileAbsolute(config.gdextension_h_path, .{});
-    var buffered_reader = std.io.bufferedReader(header_file.reader());
-    const reader = buffered_reader.reader();
-
-    const name_doc = "@name";
-
-    var buf: [1024]u8 = undefined;
-    var fn_name: ?[]const u8 = null;
-    var fp_type: ?[]const u8 = null;
-    const safe_ident_chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
-
-    var doc_stream: std.ArrayListUnmanaged(u8) = .empty;
-    const doc_writer: std.ArrayListUnmanaged(u8).Writer = doc_stream.writer(ctx.allocator);
-
-    var doc_start: ?usize = null;
-    var doc_end: ?usize = null;
-    var doc_line_buf: [1024]u8 = undefined;
-    var doc_line_temp: [1024]u8 = undefined;
-
-    while (true) {
-        const line: []const u8 = reader.readUntilDelimiterOrEof(&buf, '\n') catch break orelse break;
-
-        const contains_name_doc = std.mem.indexOf(u8, line, name_doc) != null;
-
-        // getting function docs
-        if (std.mem.indexOf(u8, line, "/*")) |i| if (i >= 0) {
-            doc_start = doc_stream.items.len;
-
-            if (line.len <= 3) {
-                continue;
-            }
-        };
-
-        // we are in a doc comment
-        if (doc_start != null) {
-            const is_last_line = std.mem.containsAtLeast(u8, line, 1, "*/");
-
-            if (line.len > 0) {
-                @memcpy(doc_line_buf[0 .. line.len - 2], line[2..]);
-                var doc_line = doc_line_buf[0 .. line.len - 2];
-
-                if (is_last_line) {
-                    // remove the trailing "*/"
-                    const len = std.mem.replace(u8, doc_line, "*/", "", &doc_line_temp);
-                    doc_line = doc_line_temp[0..len];
-                }
-
-                if (!contains_name_doc and !(is_last_line and doc_line.len == 0)) {
-                    try doc_writer.writeAll("/// ");
-                    try doc_writer.writeAll(try ctx.allocator.dupe(u8, doc_line));
-                    try doc_writer.writeAll("\n");
-                }
-
-                if (is_last_line) {
-                    doc_end = doc_stream.items.len;
-                }
-            }
-        }
-
-        // getting function pointers
-        if (contains_name_doc) {
-            const name_index = std.mem.indexOf(u8, line, name_doc).?;
-            const start = name_index + name_doc.len + 1; // +1 to skip the space after @name
-            fn_name = try ctx.allocator.dupe(u8, line[start..]);
-            fp_type = null;
-        } else if (std.mem.startsWith(u8, line, "typedef")) {
-            if (fn_name == null) continue; // skip if we don't have a function name yet
-
-            var iterator = std.mem.splitSequence(u8, line, " ");
-            _ = iterator.next(); // skip "typedef"
-            const const_or_return_type = iterator.next().?; // skip the return type
-            if (std.mem.eql(u8, const_or_return_type, "const")) {
-                // skip "const" keyword
-                _ = iterator.next();
-            }
-
-            const fp_type_slice = iterator.next().?;
-            const start = std.mem.indexOfAny(u8, fp_type_slice, safe_ident_chars).?;
-            const end = std.mem.indexOf(u8, fp_type_slice[start..], ")").?;
-            fp_type = try ctx.allocator.dupe(u8, fp_type_slice[start..(end + start)]);
-        }
-
-        if (fn_name) |_| if (fp_type) |_| {
-            try ctx.func_pointers.put(ctx.allocator, fp_type.?, fn_name.?);
-
-            if (doc_start) |start_index| if (doc_end) |end_index| {
-                const doc_text = try ctx.allocator.dupe(u8, doc_stream.items[start_index..end_index]);
-                try ctx.func_docs.put(ctx.allocator, fp_type.?, doc_text);
-            };
-
-            fn_name = null;
-            fp_type = null;
-            doc_start = null;
-            doc_end = null;
-        };
-    }
-}
-
-pub fn toSnakeCase(in: []const u8, buf: []u8) []const u8 {
-    return case.bufTo(buf, .snake, in) catch @panic("toSnakeCase failed");
-}
+const Context = @import("Context.zig");
+const enums = @import("enums.zig");
+const ProcType = enums.ProcType;
+const GdExtensionApi = @import("GdExtensionApi.zig");
+const packed_array = @import("packed_array.zig");
+const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
+const types = @import("types.zig");
+const CodegenConfig = types.CodegenConfig;
+const util = @import("util.zig");
