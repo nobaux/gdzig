@@ -1,6 +1,6 @@
 const std = @import("std");
 const mzvr = @import("mvzr");
-const GdExtensionApi = @import("extension_api.zig");
+const GdExtensionApi = @import("GdExtensionApi.zig");
 const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
 const types = @import("types.zig");
 const case = @import("case");

@@ -2,7 +2,7 @@ const std = @import("std");
 const enums = @import("enums.zig");
 
 const Allocator = std.mem.Allocator;
-const GdExtensionApi = @import("extension_api.zig");
+const GdExtensionApi = @import("GdExtensionApi.zig");
 
 pub const ident_width = 4;
 pub const StringSizeMap = std.StringHashMapUnmanaged(i64);

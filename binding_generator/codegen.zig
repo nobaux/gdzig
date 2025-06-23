@@ -6,7 +6,7 @@ const packed_array = @import("packed_array.zig");
 const gdextension = @import("gdextension");
 
 const Allocator = std.mem.Allocator;
-const GdExtensionApi = @import("extension_api.zig");
+const GdExtensionApi = @import("GdExtensionApi.zig");
 const string = []const u8;
 const StreamBuilder = @import("stream_builder.zig").DefaultStreamBuilder;
 const CodegenConfig = types.CodegenConfig;
