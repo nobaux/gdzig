@@ -1080,11 +1080,11 @@ fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Codege
     try imp_builder.writeLine(0, "const vector = @import(\"vector\");");
 
     if (!std.mem.eql(u8, class_name, "String")) {
-        try imp_builder.writeLine(0, "const String = godot.String;");
+        try imp_builder.writeLine(0, "const String = godot.core.String;");
     }
 
     if (!std.mem.eql(u8, class_name, "StringName")) {
-        try imp_builder.writeLine(0, "const StringName = godot.StringName;");
+        try imp_builder.writeLine(0, "const StringName = godot.core.StringName;");
     }
 
     for (ctx.depends.items) |d| {
@@ -1092,7 +1092,15 @@ fn addImports(class_name: []const u8, code_builder: *StreamBuilder, ctx: *Codege
         if (imported_class_map.contains(d)) continue;
         if (builtin_type_map.has(d)) continue;
         try imported_class_map.putNoClobber(ctx.allocator, d, true);
-        try imp_builder.printLine(0, "const {0s} = godot.{0s};", .{d});
+        if (std.mem.startsWith(u8, d, "Vector")) {
+            try imp_builder.printLine(0, "const {0s} = godot.{0s};", .{d});
+        } else if (std.mem.eql(u8, d, "Variant")) {
+            try imp_builder.printLine(0, "const {0s} = godot.{0s};", .{d});
+        } else if (std.mem.eql(u8, d, "global")) {
+            try imp_builder.printLine(0, "const {0s} = godot.{0s};", .{d});
+        } else {
+            try imp_builder.printLine(0, "const {0s} = godot.core.{0s};", .{d});
+        }
     }
 
     try imp_builder.write(0, code_builder.getWritten());
