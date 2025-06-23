@@ -1,18 +1,10 @@
 const std = @import("std");
 
-const core = @import("godot_core");
-const c = core.c;
-const global = core.global;
-
+pub const core = @import("godot_core");
+pub const c = core.c;
+pub const global = core.global;
 pub const support = @import("support.zig");
-
-pub usingnamespace core;
-pub usingnamespace core.c;
-
 pub const Variant = @import("Variant.zig");
-
-const StringName = core.StringName;
-const String = core.String;
 
 pub var general_allocator: std.mem.Allocator = undefined;
 
@@ -48,32 +40,32 @@ pub fn unreference(refcounted_obj: anytype) void {
     }
 }
 
-pub fn getClassName(comptime T: type) *StringName {
+pub fn getClassName(comptime T: type) *core.StringName {
     const Static = struct {
         pub fn makeItUniqueForT() i8 {
             return @sizeOf(T);
         }
-        pub var class_name: StringName = undefined;
+        pub var class_name: core.StringName = undefined;
     };
     return &Static.class_name;
 }
 
-pub fn getParentClassName(comptime T: type) *StringName {
+pub fn getParentClassName(comptime T: type) *core.StringName {
     const Static = struct {
         pub fn makeItUniqueForT() i8 {
             return @sizeOf(T);
         }
-        pub var parent_class_name: StringName = undefined;
+        pub var parent_class_name: core.StringName = undefined;
     };
     return &Static.parent_class_name;
 }
 
-pub fn stringNameToAscii(strname: StringName, buf: []u8) []const u8 {
-    const str = String.initFromStringName(strname);
+pub fn stringNameToAscii(strname: core.StringName, buf: []u8) []const u8 {
+    const str = core.String.initFromStringName(strname);
     return stringToAscii(str, buf);
 }
 
-pub fn stringToAscii(str: String, buf: []u8) []const u8 {
+pub fn stringToAscii(str: core.String, buf: []u8) []const u8 {
     const sz = core.stringToLatin1Chars(@ptrCast(&str), &buf[0], @intCast(buf.len));
     return buf[0..@intCast(sz)];
 }
@@ -221,8 +213,8 @@ pub fn registerClass(comptime T: type) void {
 
     const P = std.meta.FieldType(T, .base);
     const parent_class_name = comptime getBaseName(@typeName(P));
-    getParentClassName(T).* = StringName.initFromUtf8Chars(parent_class_name);
-    getClassName(T).* = StringName.initFromUtf8Chars(class_name);
+    getParentClassName(T).* = core.StringName.initFromUtf8Chars(parent_class_name);
+    getClassName(T).* = core.StringName.initFromUtf8Chars(class_name);
 
     const PerClassData = struct {
         pub var class_info = init_blk: {
@@ -274,7 +266,7 @@ pub fn registerClass(comptime T: type) void {
 
         pub fn setBind(p_instance: c.GDExtensionClassInstancePtr, name: c.GDExtensionConstStringNamePtr, value: c.GDExtensionConstVariantPtr) callconv(.C) c.GDExtensionBool {
             if (p_instance) |p| {
-                return if (T._set(@ptrCast(@alignCast(p)), @as(*StringName, @ptrCast(@constCast(name))).*, @as(*Variant, @ptrCast(@constCast(value))).*)) 1 else 0; //fn _set(_: *Self, name: Godot.StringName, _: Godot.Variant) bool
+                return if (T._set(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(name))).*, @as(*Variant, @ptrCast(@constCast(value))).*)) 1 else 0; //fn _set(_: *Self, name: Godot.core.StringName, _: Godot.Variant) bool
             } else {
                 return 0;
             }
@@ -282,7 +274,7 @@ pub fn registerClass(comptime T: type) void {
 
         pub fn getBind(p_instance: c.GDExtensionClassInstancePtr, name: c.GDExtensionConstStringNamePtr, value: c.GDExtensionVariantPtr) callconv(.C) c.GDExtensionBool {
             if (p_instance) |p| {
-                return if (T._get(@ptrCast(@alignCast(p)), @as(*StringName, @ptrCast(@constCast(name))).*, @as(*Variant, @ptrCast(value)))) 1 else 0; //fn _get(self:*Self, name: StringName, value:*Variant) bool
+                return if (T._get(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(name))).*, @as(*Variant, @ptrCast(value)))) 1 else 0; //fn _get(self:*Self, name: core.StringName, value:*Variant) bool
             } else {
                 return 0;
             }
@@ -340,7 +332,7 @@ pub fn registerClass(comptime T: type) void {
 
         pub fn propertyCanRevertBind(p_instance: c.GDExtensionClassInstancePtr, p_name: c.GDExtensionConstStringNamePtr) callconv(.C) c.GDExtensionBool {
             if (p_instance) |p| {
-                return if (T._property_can_revert(@ptrCast(@alignCast(p)), @as(*StringName, @ptrCast(@constCast(p_name))).*)) 1 else 0; //fn _property_can_revert(self:*Self, name: StringName) bool
+                return if (T._property_can_revert(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(p_name))).*)) 1 else 0; //fn _property_can_revert(self:*Self, name: core.StringName) bool
             } else {
                 return 0;
             }
@@ -348,7 +340,7 @@ pub fn registerClass(comptime T: type) void {
 
         pub fn propertyGetRevertBind(p_instance: c.GDExtensionClassInstancePtr, p_name: c.GDExtensionConstStringNamePtr, r_ret: c.GDExtensionVariantPtr) callconv(.C) c.GDExtensionBool {
             if (p_instance) |p| {
-                return if (T._property_get_revert(@ptrCast(@alignCast(p)), @as(*StringName, @ptrCast(@constCast(p_name))).*, @as(*Variant, @ptrCast(r_ret)))) 1 else 0; //fn _property_get_revert(self:*Self, name: StringName, ret:*Variant) bool
+                return if (T._property_get_revert(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(p_name))).*, @as(*Variant, @ptrCast(r_ret)))) 1 else 0; //fn _property_get_revert(self:*Self, name: core.StringName, ret:*Variant) bool
             } else {
                 return 0;
             }
@@ -370,10 +362,10 @@ pub fn registerClass(comptime T: type) void {
 
         pub fn toStringBind(p_instance: c.GDExtensionClassInstancePtr, r_is_valid: [*c]c.GDExtensionBool, p_out: c.GDExtensionStringPtr) callconv(.C) void {
             if (p_instance) |p| {
-                const ret: ?String = T._to_string(@ptrCast(@alignCast(p))); //fn _to_string(self:*Self) ?Godot.String {}
+                const ret: ?core.String = T._to_string(@ptrCast(@alignCast(p))); //fn _to_string(self:*Self) ?Godot.core.String {}
                 if (ret) |r| {
                     r_is_valid.* = 1;
-                    @as(*String, @ptrCast(p_out)).* = r;
+                    @as(*core.String, @ptrCast(p_out)).* = r;
                 }
             }
         }
@@ -442,7 +434,7 @@ pub fn MethodBinderT(comptime MethodType: type) type {
         const ArgsTuple = std.meta.fields(std.meta.ArgsTuple(MethodType));
         var arg_properties: [ArgCount + 1]c.GDExtensionPropertyInfo = undefined;
         var arg_metadata: [ArgCount + 1]c.GDExtensionClassMethodArgumentMetadata = undefined;
-        var method_name: StringName = undefined;
+        var method_name: core.StringName = undefined;
         var method_info: c.GDExtensionClassMethodInfo = undefined;
 
         pub fn bindCall(p_method_userdata: ?*anyopaque, p_instance: c.GDExtensionClassInstancePtr, p_args: [*c]const c.GDExtensionConstVariantPtr, p_argument_count: c.GDExtensionInt, p_return: c.GDExtensionVariantPtr, p_error: [*c]c.GDExtensionCallError) callconv(.C) void {
@@ -539,24 +531,24 @@ pub fn registerMethod(comptime T: type, comptime name: [:0]const u8) void {
     const p_method = @field(T, name);
     const MethodBinder = MethodBinderT(@TypeOf(p_method));
 
-    MethodBinder.method_name = StringName.initFromLatin1Chars(name);
+    MethodBinder.method_name = core.StringName.initFromLatin1Chars(name);
     MethodBinder.arg_metadata[0] = c.GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
     MethodBinder.arg_properties[0] = c.GDExtensionPropertyInfo{
         .type = @intCast(Variant.getVariantType(MethodBinder.ReturnType.?)),
-        .name = @ptrCast(@constCast(&StringName.init())),
-        .class_name = @ptrCast(@constCast(&StringName.init())),
+        .name = @ptrCast(@constCast(&core.StringName.init())),
+        .class_name = @ptrCast(@constCast(&core.StringName.init())),
         .hint = global.PROPERTY_HINT_NONE,
-        .hint_string = @ptrCast(@constCast(&String.init())),
+        .hint_string = @ptrCast(@constCast(&core.String.init())),
         .usage = global.PROPERTY_USAGE_NONE,
     };
 
     inline for (1..MethodBinder.ArgCount) |i| {
         MethodBinder.arg_properties[i] = c.GDExtensionPropertyInfo{
             .type = @intCast(Variant.getVariantType(MethodBinder.ArgsTuple[i].type)),
-            .name = @ptrCast(@constCast(&StringName.init())),
+            .name = @ptrCast(@constCast(&core.StringName.init())),
             .class_name = getClassName(MethodBinder.ArgsTuple[i].type),
             .hint = global.PROPERTY_HINT_NONE,
-            .hint_string = @ptrCast(@constCast(&String.init())),
+            .hint_string = @ptrCast(@constCast(&core.String.init())),
             .usage = global.PROPERTY_USAGE_NONE,
         };
 
@@ -607,9 +599,9 @@ pub fn registerSignal(comptime T: type, comptime signal_name: [:0]const u8, argu
     }
 
     if (arguments.len > 0) {
-        core.classdbRegisterExtensionClassSignal(core.p_library, getClassName(T), &StringName.initFromLatin1Chars(signal_name), &propertyies[0], @intCast(arguments.len));
+        core.classdbRegisterExtensionClassSignal(core.p_library, getClassName(T), &core.StringName.initFromLatin1Chars(signal_name), &propertyies[0], @intCast(arguments.len));
     } else {
-        core.classdbRegisterExtensionClassSignal(core.p_library, getClassName(T), &StringName.initFromLatin1Chars(signal_name), null, 0);
+        core.classdbRegisterExtensionClassSignal(core.p_library, getClassName(T), &core.StringName.initFromLatin1Chars(signal_name), null, 0);
     }
 }
 
@@ -631,7 +623,7 @@ pub fn init() void {
 pub fn deinit() void {
     var key_iter = registered_classes.keyIterator();
     while (key_iter.next()) |it| {
-        var class_name = StringName.initFromUtf8Chars(it.*);
+        var class_name = core.StringName.initFromUtf8Chars(it.*);
         core.classdbUnregisterExtensionClass(core.p_library, @ptrCast(&class_name));
     }
 
@@ -652,25 +644,25 @@ pub fn deinit() void {
 
 pub const PropertyInfo = struct {
     type: c.GDExtensionVariantType = c.GDEXTENSION_VARIANT_TYPE_NIL,
-    name: StringName,
-    class_name: StringName,
+    name: core.StringName,
+    class_name: core.StringName,
     hint: u32 = global.PROPERTY_HINT_NONE,
-    hint_string: String,
+    hint_string: core.String,
     usage: u32 = global.PROPERTY_USAGE_DEFAULT,
     const Self = @This();
 
-    pub fn init(@"type": c.GDExtensionVariantType, name: StringName) Self {
+    pub fn init(@"type": c.GDExtensionVariantType, name: core.StringName) Self {
         return .{
             .type = @"type",
             .name = name,
-            .hint_string = String.initFromUtf8Chars("test property"),
-            .class_name = StringName.initFromLatin1Chars(""),
+            .hint_string = core.String.initFromUtf8Chars("test property"),
+            .class_name = core.StringName.initFromLatin1Chars(""),
             .hint = global.PROPERTY_HINT_NONE,
             .usage = global.PROPERTY_USAGE_DEFAULT,
         };
     }
 
-    pub fn initFull(@"type": c.GDExtensionVariantType, name: StringName, class_name: StringName, hint: u32, hint_string: String, usage: u32) Self {
+    pub fn initFull(@"type": c.GDExtensionVariantType, name: core.StringName, class_name: core.StringName, hint: u32, hint_string: core.String, usage: u32) Self {
         return .{
             .type = @"type",
             .name = name,
