@@ -1,6 +1,6 @@
 header: Header,
-builtin_class_sizes: []BuiltinClassSize,
-builtin_class_member_offsets: []BuiltinClassMemberOffset,
+builtin_class_sizes: []BuiltinSize,
+builtin_class_member_offsets: []BuiltinMemberOffset,
 global_constants: []GlobalConstant,
 global_enums: []GlobalEnum,
 utility_functions: []UtilityFunction,
@@ -23,7 +23,7 @@ pub const SizeInfo = struct {
     size: i64,
 };
 
-pub const BuiltinClassSize = struct {
+pub const BuiltinSize = struct {
     build_configuration: []const u8,
     sizes: []SizeInfo,
 };
@@ -39,7 +39,7 @@ pub const ClassMemberOffsets = struct {
     members: []MemberOffset,
 };
 
-pub const BuiltinClassMemberOffset = struct {
+pub const BuiltinMemberOffset = struct {
     build_configuration: []const u8,
     classes: []ClassMemberOffsets,
 };
@@ -315,7 +315,7 @@ fn findInheritsRecursive(self: @This(), allocator: std.mem.Allocator, class: Cla
         try self.findInheritsRecursive(allocator, parent, inherits);
     }
 
-    if (self.findBuiltinClass(class.inherits)) |parent| {
+    if (self.findBuiltin(class.inherits)) |parent| {
         try inherits.append(allocator, .{ .builtin = parent });
     }
 }
