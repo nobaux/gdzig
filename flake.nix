@@ -28,12 +28,14 @@
         zlsPinned = zls.packages.${system}.zls.overrideAttrs (prev: {
           buildInputs = [zigPinned];
         });
+        inherit (pkgs) lib stdenv;
       in {
         default = pkgs.mkShell {
           buildInputs = [
-            pkgs.godot
             zigPinned
             zlsPinned
+          ] ++ lib.optionals stdenv.isLinux [
+            pkgs.godot
           ];
         };
       }
