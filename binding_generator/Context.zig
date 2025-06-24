@@ -52,12 +52,12 @@ pub fn build(allocator: Allocator, api: GodotApi, config: Config) !Context {
     try self.parseGdExtensionHeaders();
     try self.parseClassSizes();
     try self.parseSingletons();
-    try self.parseEngineClasses();
+    try self.parseClasses();
 
     return self;
 }
 
-fn parseEngineClasses(self: *Context) !void {
+fn parseClasses(self: *Context) !void {
     for (self.api.classes) |bc| {
         // TODO: why?
         if (std.mem.eql(u8, bc.name, "ClassDB")) {
@@ -210,7 +210,7 @@ pub fn addDependType(self: *Context, type_name: []const u8) !void {
     }
 }
 
-pub fn correctName(self: *Context, name: []const u8) []const u8 {
+pub fn correctName(self: *const Context, name: []const u8) []const u8 {
     if (std.zig.Token.keywords.has(name)) {
         return std.fmt.allocPrint(self.allocator, "@\"{s}\"", .{name}) catch unreachable;
     }
@@ -218,7 +218,7 @@ pub fn correctName(self: *Context, name: []const u8) []const u8 {
     return name;
 }
 
-pub fn correctType(self: *Context, type_name: []const u8, meta: []const u8) []const u8 {
+pub fn correctType(self: *const Context, type_name: []const u8, meta: []const u8) []const u8 {
     var correct_type = if (meta.len > 0) meta else type_name;
     if (correct_type.len == 0) return "void";
 
@@ -256,7 +256,7 @@ pub fn correctType(self: *Context, type_name: []const u8, meta: []const u8) []co
     return correct_type;
 }
 
-pub fn getArgumentsTypes(ctx: *Context, fn_node: GodotApi.Builtin.Constructor, buf: []u8) []const u8 {
+pub fn getArgumentsTypes(ctx: *const Context, fn_node: GodotApi.Builtin.Constructor, buf: []u8) []const u8 {
     var pos: usize = 0;
     if (@hasField(@TypeOf(fn_node), "arguments")) {
         if (fn_node.arguments) |as| {
@@ -278,7 +278,7 @@ pub fn getArgumentsTypes(ctx: *Context, fn_node: GodotApi.Builtin.Constructor, b
     return buf[0..pos];
 }
 
-pub fn getReturnType(self: *Context, method: GodotApi.GdMethod) []const u8 {
+pub fn getReturnType(self: *const Context, method: GodotApi.GdMethod) []const u8 {
     return switch (method) {
         .builtin => |bc| self.correctType(bc.return_type, ""),
         .class => |cls| if (cls.return_value) |ret| self.correctType(ret.type, ret.meta) else "void",
@@ -295,13 +295,13 @@ pub fn getZigFuncName(self: *Context, godot_func_name: []const u8) []const u8 {
     return result.value_ptr.*;
 }
 
-pub fn getVariantTypeName(self: *Context, class_name: []const u8) []const u8 {
+pub fn getVariantTypeName(self: *const Context, class_name: []const u8) []const u8 {
     var buf: [256]u8 = undefined;
     const nnn = case.bufTo(&buf, .snake, class_name) catch unreachable;
     return std.fmt.allocPrint(self.allocator, "godot.c.GDEXTENSION_VARIANT_TYPE_{s}", .{std.ascii.upperString(&buf, nnn)}) catch unreachable;
 }
 
-pub fn isRefCounted(self: *Context, type_name: []const u8) bool {
+pub fn isRefCounted(self: *const Context, type_name: []const u8) bool {
     const real_type = util.childType(type_name);
     if (self.engine_classes.get(real_type)) |v| {
         return v;
@@ -309,12 +309,12 @@ pub fn isRefCounted(self: *Context, type_name: []const u8) bool {
     return false;
 }
 
-pub fn isEngineClass(self: *Context, type_name: []const u8) bool {
+pub fn isEngineClass(self: *const Context, type_name: []const u8) bool {
     const real_type = util.childType(type_name);
     return std.mem.eql(u8, real_type, "Object") or self.engine_classes.contains(real_type);
 }
 
-pub fn isSingleton(self: *Context, class_name: []const u8) bool {
+pub fn isSingleton(self: *const Context, class_name: []const u8) bool {
     return self.singletons.contains(class_name);
 }
 
