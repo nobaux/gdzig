@@ -118,6 +118,18 @@ pub fn build(b: *std.Build) !void {
     });
     b.installArtifact(lib);
 
+    const module_tests = b.addTest(.{
+        .root_module = godot_module,
+    });
+    const bindgen_tests = b.addTest(.{
+        .root_module = binding_generator.root_module,
+    });
+    const run_module_tests = b.addRunArtifact(module_tests);
+    const run_bindgen_tests = b.addRunArtifact(bindgen_tests);
+    const run_tests_step = b.step("test", "Run tests");
+    run_tests_step.dependOn(&run_module_tests.step);
+    run_tests_step.dependOn(&run_bindgen_tests.step);
+
     // Docs
     const docs = b.addInstallDirectory(.{
         .source_dir = lib.getEmittedDocs(),
