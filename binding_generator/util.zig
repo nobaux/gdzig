@@ -10,6 +10,7 @@ const native_type_map: std.StaticStringMap(void) = .initComptime(.{
 });
 
 const builtin_type_map = std.StaticStringMap(void).initComptime(.{
+    .{"void"},
     .{"i8"},
     .{"u8"},
     .{"i16"},
@@ -22,12 +23,19 @@ const builtin_type_map = std.StaticStringMap(void).initComptime(.{
     .{"f32"},
     .{"f64"},
     .{"c_int"},
+    .{"uint8_t"},
 });
 
 pub fn childType(type_name: []const u8) []const u8 {
     var child_type = type_name;
     while (child_type[0] == '?' or child_type[0] == '*') {
         child_type = child_type[1..];
+    }
+    while (child_type[child_type.len - 1] == '*') {
+        child_type = child_type[0 .. child_type.len - 1];
+    }
+    if (std.mem.startsWith(u8, child_type, "const ")) {
+        child_type = child_type["const ".len..];
     }
     return child_type;
 }

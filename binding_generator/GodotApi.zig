@@ -44,38 +44,6 @@ pub const BuiltinMemberOffset = struct {
     classes: []ClassMemberOffsets,
 };
 
-pub const GlobalEnum = struct {
-    name: []const u8,
-    is_bitfield: bool,
-    values: []Value,
-
-    pub const Value = struct {
-        name: []const u8,
-        value: i64,
-        description: ?[]const u8 = null,
-    };
-};
-
-pub const GlobalConstant = struct {
-    name: []const u8,
-    value: []const u8,
-};
-
-pub const UtilityFunction = struct {
-    name: []const u8,
-    return_type: []const u8 = "",
-    category: []const u8,
-    is_vararg: bool,
-    hash: u64,
-    arguments: ?[]Argument = null,
-    description: ?[]const u8 = null,
-
-    pub const Argument = struct {
-        name: []const u8,
-        type: []const u8,
-    };
-};
-
 pub const Builtin = struct {
     name: []const u8,
     indexing_return_type: []const u8 = "",
@@ -154,16 +122,6 @@ pub const Builtin = struct {
         name: []const u8,
         type: []const u8,
         description: ?[]const u8 = null,
-    };
-};
-
-pub const Signal = struct {
-    name: []const u8,
-    arguments: ?[]Argument = null,
-
-    pub const Argument = struct {
-        name: []const u8,
-        type: []const u8,
     };
 };
 
@@ -251,6 +209,38 @@ pub const Class = struct {
             default_value: []const u8 = "",
         };
     };
+
+    pub const Signal = struct {
+        name: []const u8,
+        arguments: ?[]Argument = null,
+
+        pub const Argument = struct {
+            name: []const u8,
+            type: []const u8,
+        };
+    };
+};
+
+pub const GlobalConstant = struct {
+    name: []const u8,
+    value: []const u8,
+};
+
+pub const GlobalEnum = struct {
+    name: []const u8,
+    is_bitfield: bool,
+    values: []Value,
+
+    pub const Value = struct {
+        name: []const u8,
+        value: i64,
+        description: ?[]const u8 = null,
+    };
+};
+
+pub const NativeStructure = struct {
+    name: []const u8,
+    format: []const u8,
 };
 
 pub const Singleton = struct {
@@ -258,9 +248,19 @@ pub const Singleton = struct {
     type: []const u8,
 };
 
-pub const NativeStructure = struct {
+pub const UtilityFunction = struct {
     name: []const u8,
-    format: []const u8,
+    return_type: []const u8 = "",
+    category: []const u8,
+    is_vararg: bool,
+    hash: u64,
+    arguments: ?[]Argument = null,
+    description: ?[]const u8 = null,
+
+    pub const Argument = struct {
+        name: []const u8,
+        type: []const u8,
+    };
 };
 
 pub fn findClass(self: @This(), name: []const u8) ?Class {
