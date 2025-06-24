@@ -299,25 +299,12 @@ pub const Type = union(enum) {
     }
 };
 
-pub fn findInherits(self: @This(), allocator: std.mem.Allocator, class: Class) !std.ArrayListUnmanaged(Type) {
-    var inherits: std.ArrayListUnmanaged(Type) = .empty;
-    try self.findInheritsRecursive(allocator, class, &inherits);
-    return inherits;
-}
-
-fn findInheritsRecursive(self: @This(), allocator: std.mem.Allocator, class: Class, inherits: *std.ArrayListUnmanaged(Type)) !void {
+// TODO: handle in Context
+pub fn findParent(self: @This(), class: Class) ?Class {
     if (class.inherits.len == 0) {
-        return;
+        return null;
     }
-
-    if (self.findClass(class.inherits)) |parent| {
-        try inherits.append(allocator, .{ .class = parent });
-        try self.findInheritsRecursive(allocator, parent, inherits);
-    }
-
-    if (self.findBuiltin(class.inherits)) |parent| {
-        try inherits.append(allocator, .{ .builtin = parent });
-    }
+    return self.findClass(class.inherits);
 }
 
 const std = @import("std");
