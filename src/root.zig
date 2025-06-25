@@ -537,7 +537,7 @@ pub fn registerMethod(comptime T: type, comptime name: [:0]const u8) void {
         .type = @intCast(Variant.getVariantType(MethodBinder.ReturnType.?)),
         .name = @ptrCast(@constCast(&core.StringName.init())),
         .class_name = @ptrCast(@constCast(&core.StringName.init())),
-        .hint = @bitCast(global.PropertyHint.property_hint_none),
+        .hint = @intFromEnum(global.PropertyHint.property_hint_none),
         .hint_string = @ptrCast(@constCast(&core.String.init())),
         .usage = @bitCast(global.PropertyUsage.property_usage_none),
     };
@@ -547,7 +547,7 @@ pub fn registerMethod(comptime T: type, comptime name: [:0]const u8) void {
             .type = @intCast(Variant.getVariantType(MethodBinder.ArgsTuple[i].type)),
             .name = @ptrCast(@constCast(&core.StringName.init())),
             .class_name = getClassName(MethodBinder.ArgsTuple[i].type),
-            .hint = @bitCast(global.PropertyHint.property_hint_none),
+            .hint = @intFromEnum(global.PropertyHint.property_hint_none),
             .hint_string = @ptrCast(@constCast(&core.String.init())),
             .usage = @bitCast(global.PropertyUsage.property_usage_none),
         };
@@ -646,7 +646,7 @@ pub const PropertyInfo = struct {
     type: c.GDExtensionVariantType = c.GDEXTENSION_VARIANT_TYPE_NIL,
     name: core.StringName,
     class_name: core.StringName,
-    hint: u32 = @bitCast(global.PropertyHint.property_hint_none),
+    hint: u32 = @intFromEnum(global.PropertyHint.property_hint_none),
     hint_string: core.String,
     usage: u32 = @bitCast(global.PropertyUsage.property_usage_default),
     const Self = @This();
@@ -657,7 +657,7 @@ pub const PropertyInfo = struct {
             .name = name,
             .hint_string = core.String.initFromUtf8Chars("test property"),
             .class_name = core.StringName.initFromLatin1Chars(""),
-            .hint = @bitCast(global.PropertyHint.property_hint_none),
+            .hint = @intFromEnum(global.PropertyHint.property_hint_none),
             .usage = @bitCast(global.PropertyUsage.property_usage_default),
         };
     }
