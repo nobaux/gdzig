@@ -1,10 +1,10 @@
 pub const Context = @This();
 
+/// @deprecated: prefer passing allocator
 allocator: Allocator,
 api: GodotApi,
 config: Config,
 
-all_classes: ArrayList([]const u8) = .empty,
 all_engine_classes: ArrayList([]const u8) = .empty,
 class_sizes: StringHashMap(i64) = .empty,
 depends: ArrayList([]const u8) = .empty,
@@ -13,6 +13,12 @@ func_docs: StringHashMap([]const u8) = .empty,
 func_names: StringHashMap([]const u8) = .empty,
 func_pointers: StringHashMap([]const u8) = .empty,
 singletons: StringHashMap([]const u8) = .empty,
+
+core_exports: ArrayList(struct { ident: []const u8, file: []const u8, path: ?[]const u8 = null }) = .empty,
+builtin_imports: StringHashMap(Imports) = .empty,
+class_index: StringHashMap(usize) = .empty,
+class_imports: StringHashMap(Imports) = .empty,
+function_imports: StringHashMap(Imports) = .empty,
 
 const func_case: case.Case = .camel;
 
@@ -40,6 +46,10 @@ pub fn deinit(self: *Context) void {
     self.func_names.deinit(self.allocator);
     self.func_pointers.deinit(self.allocator);
     self.singletons.deinit(self.allocator);
+    self.builtin_imports.deinit(self.allocator);
+    self.class_index.deinit(self.allocator);
+    self.class_imports.deinit(self.allocator);
+    self.function_imports.deinit(self.allocator);
 }
 
 pub fn build(allocator: Allocator, api: GodotApi, config: Config) !Context {
@@ -49,12 +59,141 @@ pub fn build(allocator: Allocator, api: GodotApi, config: Config) !Context {
         .config = config,
     };
 
+    try self.collectExports(allocator);
+
     try self.parseGdExtensionHeaders();
     try self.parseClassSizes();
     try self.parseSingletons();
     try self.parseClasses();
 
+    try self.collectImports(allocator);
+
     return self;
+}
+
+/// This function generates a list of types/modules to re-export in core.zig
+fn collectExports(self: *Context, allocator: Allocator) !void {
+    try self.core_exports.append(allocator, .{
+        .ident = "global",
+        .file = "global",
+    });
+
+    for (self.api.builtin_classes) |builtin| {
+        if (util.shouldSkipClass(builtin.name)) {
+            continue;
+        }
+        try self.core_exports.append(allocator, .{
+            .ident = builtin.name,
+            .file = builtin.name,
+            .path = builtin.name,
+        });
+    }
+
+    for (self.api.classes) |class| {
+        if (util.shouldSkipClass(class.name)) {
+            continue;
+        }
+        try self.core_exports.append(allocator, .{
+            .ident = class.name,
+            .file = class.name,
+            .path = class.name,
+        });
+        try self.all_engine_classes.append(allocator, class.name);
+    }
+}
+
+fn collectImports(self: *Context, allocator: Allocator) !void {
+    for (self.api.builtin_classes) |builtin| {
+        try self.collectBuiltinImports(allocator, builtin);
+    }
+    for (self.api.classes, 0..) |class, i| {
+        try self.class_index.put(allocator, class.name, i);
+    }
+    for (self.api.classes) |class| {
+        try self.collectClassImports(allocator, class);
+    }
+    for (self.api.utility_functions) |function| {
+        try self.collectFunctionImports(allocator, function);
+    }
+}
+
+fn collectBuiltinImports(self: *Context, allocator: Allocator, builtin: GodotApi.Builtin) !void {
+    if (self.builtin_imports.contains(builtin.name)) return;
+
+    var imports: Imports = .empty;
+    imports.skip = builtin.name;
+
+    for (builtin.constants orelse &.{}) |constant| {
+        try imports.put(allocator, self.correctType(constant.type, ""));
+    }
+    for (builtin.constructors) |constructor| {
+        for (constructor.arguments orelse &.{}) |argument| {
+            try imports.put(allocator, self.correctType(argument.type, ""));
+        }
+    }
+    for (builtin.members orelse &.{}) |member| {
+        try imports.put(allocator, self.correctType(member.type, ""));
+    }
+    for (builtin.methods orelse &.{}) |method| {
+        try imports.put(allocator, self.correctType(method.return_type, ""));
+        for (method.arguments orelse &.{}) |argument| {
+            try imports.put(allocator, self.correctType(argument.type, ""));
+        }
+    }
+    for (builtin.operators) |operator| {
+        try imports.put(allocator, self.correctType(operator.right_type, ""));
+        try imports.put(allocator, self.correctType(operator.return_type, ""));
+    }
+
+    try self.builtin_imports.put(allocator, builtin.name, imports);
+}
+
+fn collectClassImports(self: *Context, allocator: Allocator, class: GodotApi.Class) !void {
+    if (self.class_imports.contains(class.name)) return;
+
+    var imports: Imports = .empty;
+    imports.skip = class.name;
+
+    for (class.methods orelse &.{}) |method| {
+        if (method.return_value) |return_value| {
+            try imports.put(allocator, self.correctType(return_value.type, return_value.meta));
+        }
+        for (method.arguments orelse &.{}) |argument| {
+            try imports.put(allocator, self.correctType(argument.type, argument.meta));
+        }
+    }
+    for (class.properties orelse &.{}) |_| {
+        // TODO: deal with comma separated "CanvasItemMaterial,ShaderMaterial"
+        // try imports.put(allocator, self.correctType(property.type, ""));
+    }
+    for (class.signals orelse &.{}) |signal| {
+        for (signal.arguments orelse &.{}) |argument| {
+            try imports.put(allocator, self.correctType(argument.type, ""));
+        }
+    }
+
+    // Index imports from the parent class hierarchy
+    var cur = class;
+    while (cur.inherits.len > 0) {
+        const idx = self.class_index.get(cur.inherits).?;
+        cur = self.api.classes[idx];
+        try self.collectClassImports(allocator, cur);
+        try imports.put(allocator, cur.name);
+        try imports.merge(allocator, &self.class_imports.get(cur.name).?);
+    }
+
+    try self.class_imports.put(allocator, class.name, imports);
+}
+
+fn collectFunctionImports(self: *Context, allocator: Allocator, function: GodotApi.UtilityFunction) !void {
+    var imports: Imports = .empty;
+    try imports.put(allocator, function.return_type);
+
+    for (function.arguments orelse &.{}) |argument| {
+        try imports.put(allocator, argument.type);
+    }
+
+    try self.function_imports.put(allocator, function.name, imports);
 }
 
 fn parseClasses(self: *Context) !void {
@@ -63,7 +202,6 @@ fn parseClasses(self: *Context) !void {
         if (std.mem.eql(u8, bc.name, "ClassDB")) {
             continue;
         }
-
         try self.engine_classes.put(self.allocator, bc.name, bc.is_refcounted);
     }
 
@@ -188,28 +326,6 @@ fn parseGdExtensionHeaders(self: *Context) !void {
     }
 }
 
-pub fn addDependType(self: *Context, type_name: []const u8) !void {
-    var depend_type = util.childType(type_name);
-
-    if (std.mem.startsWith(u8, depend_type, "TypedArray")) {
-        depend_type = depend_type[11 .. depend_type.len - 1];
-        try self.depends.append(self.allocator, "Array");
-    }
-
-    if (std.mem.startsWith(u8, depend_type, "Ref(")) {
-        depend_type = depend_type[4 .. depend_type.len - 1];
-        try self.depends.append(self.allocator, "Ref");
-    }
-
-    const pos = std.mem.indexOf(u8, depend_type, ".");
-
-    if (pos) |p| {
-        try self.depends.append(self.allocator, depend_type[0..p]);
-    } else {
-        try self.depends.append(self.allocator, depend_type);
-    }
-}
-
 pub fn correctName(self: *const Context, name: []const u8) []const u8 {
     if (std.zig.Token.keywords.has(name)) {
         return std.fmt.allocPrint(self.allocator, "@\"{s}\"", .{name}) catch unreachable;
@@ -329,3 +445,4 @@ const GodotApi = @import("GodotApi.zig");
 const util = @import("util.zig");
 
 const Config = @import("Config.zig");
+const Imports = @import("Imports.zig");

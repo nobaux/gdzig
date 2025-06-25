@@ -29,12 +29,6 @@ fn generateBuiltins(ctx: *Context) !void {
 }
 
 fn generateBuiltin(w: *Writer, builtin: GodotApi.Builtin, ctx: *Context) !void {
-    // TODO: why here?
-    try ctx.all_classes.append(ctx.allocator, builtin.name);
-
-    // TODO: why here?
-    ctx.depends.clearRetainingCapacity();
-
     try generateDocBlock(w, builtin.description);
 
     // TODO: remove this
@@ -54,7 +48,9 @@ fn generateBuiltin(w: *Writer, builtin: GodotApi.Builtin, ctx: *Context) !void {
     w.indent -= 1;
     try w.printLine("}};", .{});
 
-    try generateImports(w, builtin.name, ctx);
+    if (ctx.builtin_imports.get(builtin.name)) |imports| {
+        try generateImports(w, &imports);
+    }
 }
 
 fn generateBuiltinEnums(w: *Writer, builtin: GodotApi.Builtin) !void {
@@ -196,7 +192,7 @@ fn generateBuiltinMember(w: *Writer, member: GodotApi.Builtin.Member, enum_type_
             \\    var result: {s} = undefined;
             \\    const Binding = struct {{ pub var method: godot.c.GDExtensionPtrGetter = null; }};
             \\    if (Binding.method == null) {{
-            \\        const func_name = StringName.initFromLatin1Chars("{s}");
+            \\        const func_name = godot.core.StringName.initFromLatin1Chars("{s}");
             \\        Binding.method = godot.core.variantGetPtrGetter({s}, @ptrCast(&func_name));
             \\    }}
             \\    Binding.method.?(@ptrCast(&self.value), @ptrCast(&result));
@@ -215,7 +211,7 @@ fn generateBuiltinMember(w: *Writer, member: GodotApi.Builtin.Member, enum_type_
             \\pub fn {s}(self: *Self, v: {s}) void {{
             \\    const Binding = struct{{ pub var method:godot.c.GDExtensionPtrSetter = null; }};
             \\    if( Binding.method == null ) {{
-            \\        const func_name = StringName.initFromLatin1Chars("{s}");
+            \\        const func_name = godot.core.StringName.initFromLatin1Chars("{s}");
             \\        Binding.method = godot.core.variantGetPtrSetter({s}, @ptrCast(&func_name));
             \\    }}
             \\    Binding.method.?(@ptrCast(&self.value), @ptrCast(&v));
@@ -230,6 +226,7 @@ fn generateClasses(ctx: *Context) !void {
             continue;
         }
 
+        // TODO: avoid allocation?
         const filename = try std.fmt.allocPrint(ctx.allocator, "{s}.zig", .{class.name});
         defer ctx.allocator.free(filename);
 
@@ -247,13 +244,6 @@ fn generateClasses(ctx: *Context) !void {
 }
 
 fn generateClass(w: *Writer, class: GodotApi.Class, ctx: *Context) !void {
-    // TODO: why here?
-    try ctx.all_classes.append(ctx.allocator, class.name);
-    try ctx.all_engine_classes.append(ctx.allocator, class.name);
-
-    // TODO: replace with dep management
-    ctx.depends.clearRetainingCapacity();
-
     try generateDocBlock(w, class.description);
 
     // TODO: remove this
@@ -279,7 +269,9 @@ fn generateClass(w: *Writer, class: GodotApi.Class, ctx: *Context) !void {
     w.indent -= 1;
     try w.printLine("}};", .{});
 
-    try generateImports(w, class.name, ctx);
+    if (ctx.class_imports.get(class.name)) |imports| {
+        try generateImports(w, &imports);
+    }
 }
 
 fn generateClassEnums(w: *Writer, class: GodotApi.Class) !void {
@@ -439,9 +431,6 @@ fn generateGlobalEnums(ctx: *Context) !void {
 
     try buf.flush();
     try file.sync();
-
-    // TODO: why here?
-    try ctx.all_classes.append(ctx.allocator, "global");
 }
 
 fn generateGlobalEnum(w: *Writer, @"enum": GodotApi.GlobalEnum) !void {
@@ -525,7 +514,6 @@ fn generateProc(w: *Writer, fn_node: anytype, class_name: []const u8, func_name:
                 // if (proc_type == .Constructor) {
                 //     if (std.mem.eql(u8, arg_type, "f32")) {}
                 // }
-                try ctx.addDependType(arg_type);
                 if (!is_first_arg) {
                     _ = try w.write(", ");
                 }
@@ -560,7 +548,6 @@ fn generateProc(w: *Writer, fn_node: anytype, class_name: []const u8, func_name:
 
     w.indent += 1;
     if (need_return) {
-        try ctx.addDependType(return_type);
         if (return_type[0] == '?') {
             try w.printLine("var result:{s} = null;", .{return_type});
         } else {
@@ -619,7 +606,7 @@ fn generateProc(w: *Writer, fn_node: anytype, class_name: []const u8, func_name:
     switch (proc_type) {
         .UtilityFunction => {
             try w.printLine(
-                \\const method = support.bindUtilityFunction("{s}", {d});
+                \\const method = godot.support.bindUtilityFunction("{s}", {d});
                 \\method({s}, {s}, {s});
             , .{
                 func_name,
@@ -632,7 +619,7 @@ fn generateProc(w: *Writer, fn_node: anytype, class_name: []const u8, func_name:
         .ClassMethod => {
             const self_ptr = if (is_static) "null" else "@ptrCast(godot.getGodotObjectPtr(self).*)";
 
-            try w.printLine("const method = support.bindEngineClassMethod({s}, \"{s}\", {d});", .{
+            try w.printLine("const method = godot.support.bindEngineClassMethod({s}, \"{s}\", {d});", .{
                 class_name,
                 func_name,
                 fn_node.hash,
@@ -659,7 +646,7 @@ fn generateProc(w: *Writer, fn_node: anytype, class_name: []const u8, func_name:
             }
         },
         .BuiltinMethod => {
-            try w.printLine("const method = support.bindBuiltinClassMethod({s}, \"{s}\", {d});", .{ enum_type_name, func_name, fn_node.hash });
+            try w.printLine("const method = godot.support.bindBuiltinClassMethod({s}, \"{s}\", {d});", .{ enum_type_name, func_name, fn_node.hash });
             if (is_static) {
                 try w.printLine("method(null, {s}, {s}, {s});", .{ arg_array, result_string, arg_count });
             } else {
@@ -668,13 +655,13 @@ fn generateProc(w: *Writer, fn_node: anytype, class_name: []const u8, func_name:
         },
         .Constructor => {
             try w.printLine(
-                \\const method = support.bindConstructorMethod({s}, {d});
+                \\const method = godot.support.bindConstructorMethod({s}, {d});
                 \\method(@ptrCast(&result), {s});
             , .{ enum_type_name, fn_node.index, arg_array });
         },
         .Destructor => {
             try w.printLine(
-                \\const method = support.bindDestructorMethod({s});
+                \\const method = godot.support.bindDestructorMethod({s});
                 \\method(@ptrCast(&self.value));
             , .{enum_type_name});
         },
@@ -704,12 +691,11 @@ fn generateCore(ctx: *Context) !void {
         \\pub const c = @import("gdextension");
     );
 
-    for (ctx.all_classes.items) |cls| {
-        // TODO: move this logic into Context
-        if (std.mem.eql(u8, cls, "global")) {
-            try w.printLine("pub const {0s} = @import(\"{0s}.zig\");", .{cls});
+    for (ctx.core_exports.items) |@"export"| {
+        if (@"export".path) |path| {
+            try w.printLine("pub const {s} = @import(\"{s}.zig\").{s};", .{ @"export".ident, @"export".file, path });
         } else {
-            try w.printLine("pub const {0s} = @import(\"{0s}.zig\").{0s};", .{cls});
+            try w.printLine("pub const {s} = @import(\"{s}.zig\");", .{ @"export".ident, @"export".file });
         }
     }
 
@@ -777,7 +763,7 @@ fn generateCore(ctx: *Context) !void {
         try w.writeLine("godot.Variant.initBindings();");
 
         for (ctx.all_engine_classes.items) |cls| {
-            try w.printLine("godot.getClassName({0s}).* = StringName.initFromLatin1Chars(\"{0s}\");", .{cls});
+            try w.printLine("godot.getClassName({0s}).* = godot.core.StringName.initFromLatin1Chars(\"{0s}\");", .{cls});
         }
 
         w.indent -= 1;
@@ -812,47 +798,26 @@ fn generateCore(ctx: *Context) !void {
     try file.sync();
 }
 
-fn generateImports(w: *Writer, class_name: []const u8, ctx: *Context) !void {
-    // Track imports to avoid duplicates.
-    var imports: StringHashMap(bool) = .empty;
-    defer imports.deinit(ctx.allocator);
-
-    try imports.put(ctx.allocator, "Self", true);
-    try imports.put(ctx.allocator, "void", true);
-    try imports.put(ctx.allocator, "String", true);
-    try imports.put(ctx.allocator, "StringName", true);
-
+fn generateImports(w: *Writer, imports: *const Imports) !void {
     try w.writeLine(
         \\const godot = @import("godot");
-        \\const support = godot.support;
-        \\const c = godot.c;
         \\const vector = @import("vector");
     );
 
-    if (!std.mem.eql(u8, class_name, "String")) {
-        try w.writeLine("const String = godot.core.String;");
-    }
+    var iter = imports.iterator();
+    while (iter.next()) |import| {
+        if (util.isBuiltinType(import.*)) continue;
 
-    if (!std.mem.eql(u8, class_name, "StringName")) {
-        try w.writeLine("const StringName = godot.core.StringName;");
-    }
-
-    for (ctx.depends.items) |d| {
-        if (std.mem.eql(u8, d, class_name)) continue;
-        if (imports.contains(d)) continue;
-        if (util.isBuiltinType(d)) continue;
-        try imports.putNoClobber(ctx.allocator, d, true);
-
-        const path = if (std.mem.startsWith(u8, d, "Vector"))
+        const path = if (std.mem.startsWith(u8, import.*, "Vector"))
             "godot"
-        else if (std.mem.eql(u8, d, "Variant"))
+        else if (std.mem.eql(u8, import.*, "Variant"))
             "godot"
-        else if (std.mem.eql(u8, d, "global"))
+        else if (std.mem.eql(u8, import.*, "global"))
             "godot"
         else
             "godot.core";
 
-        try w.printLine("const {0s} = {1s}.{0s};", .{ d, path });
+        try w.printLine("const {0s} = {1s}.{0s};", .{ import.*, path });
     }
 }
 
@@ -863,15 +828,21 @@ fn generateUtilityFunctions(ctx: *Context) !void {
     var buf = bufferedWriter(file.writer());
     var writer = codeWriter(buf.writer().any());
 
-    // TODO: why here?
-    ctx.depends.clearRetainingCapacity();
+    // TODO: should be managed at a module level in Context and we should generate modules
+    var imports: Imports = .empty;
+    defer imports.deinit(ctx.allocator);
 
     for (ctx.api.utility_functions) |function| {
         const return_type = ctx.correctType(function.return_type, "");
         try generateProc(&writer, function, "", function.name, return_type, .UtilityFunction, ctx);
+
+        if (ctx.function_imports.get(function.name)) |function_imports| {
+            try imports.merge(ctx.allocator, &function_imports);
+        }
     }
 
-    try generateImports(&writer, "", ctx);
+    try generateImports(&writer, &imports);
+
     try buf.flush();
     try file.sync();
 }
@@ -893,10 +864,11 @@ const fs = std.fs;
 const case = @import("case");
 const gdextension = @import("gdextension");
 
+const Config = @import("Config.zig");
 const Context = @import("Context.zig");
+const GodotApi = @import("GodotApi.zig");
+const Imports = @import("Imports.zig");
 const Writer = @import("writer.zig").AnyWriter;
 const codeWriter = @import("writer.zig").codeWriter;
-const GodotApi = @import("GodotApi.zig");
 const packed_array = @import("packed_array.zig");
-const Config = @import("Config.zig");
 const util = @import("util.zig");
