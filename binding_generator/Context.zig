@@ -1,4 +1,9 @@
-pub const Context = @This();
+const Context = @This();
+
+pub const Enum = @import("context/Enum.zig");
+pub const Flag = @import("context/Flag.zig");
+pub const Function = @import("context/Function.zig");
+pub const Module = @import("context/Module.zig");
 
 /// @deprecated: prefer passing allocator
 allocator: Allocator,
@@ -20,8 +25,9 @@ class_index: StringHashMap(usize) = .empty,
 class_imports: StringHashMap(Imports) = .empty,
 function_imports: StringHashMap(Imports) = .empty,
 
-enums: ArrayList(CodeApi.Enum) = .empty,
-flags: ArrayList(CodeApi.Flag) = .empty,
+enums: ArrayList(Enum) = .empty,
+flags: ArrayList(Flag) = .empty,
+modules: ArrayList(Module) = .empty,
 
 const func_case: case.Case = .camel;
 
@@ -38,6 +44,29 @@ const base_type_map = std.StaticStringMap([]const u8).initComptime(.{
     .{ "float", "f32" },
     .{ "double", "f64" },
 });
+
+pub fn build(allocator: Allocator, api: GodotApi, config: Config) !Context {
+    var self = Context{
+        .allocator = allocator,
+        .api = api,
+        .config = config,
+    };
+
+    try self.collectExports(allocator);
+
+    try self.parseGdExtensionHeaders();
+    try self.parseClassSizes();
+    try self.parseSingletons();
+    try self.parseClasses();
+
+    try self.castEnums(allocator);
+    try self.castFlags(allocator);
+    try self.castModules(allocator);
+
+    try self.collectImports(allocator);
+
+    return self;
+}
 
 pub fn deinit(self: *Context) void {
     self.all_classes.deinit(self.allocator);
@@ -63,28 +92,11 @@ pub fn deinit(self: *Context) void {
         flag.deinit(self.allocator);
     }
     self.flags.deinit(self.allocator);
-}
 
-pub fn build(allocator: Allocator, api: GodotApi, config: Config) !Context {
-    var self = Context{
-        .allocator = allocator,
-        .api = api,
-        .config = config,
-    };
-
-    try self.collectExports(allocator);
-
-    try self.parseGdExtensionHeaders();
-    try self.parseClassSizes();
-    try self.parseSingletons();
-    try self.parseClasses();
-
-    try self.castEnums(allocator);
-    try self.castFlags(allocator);
-
-    try self.collectImports(allocator);
-
-    return self;
+    for (self.modules.items) |module| {
+        module.deinit(self.allocator);
+    }
+    self.modules.deinit(self.allocator);
 }
 
 /// This function generates a list of types/modules to re-export in core.zig
@@ -347,7 +359,7 @@ fn castEnums(self: *Context, allocator: Allocator) !void {
         if (@"enum".is_bitfield) {
             continue;
         }
-        try self.flags.append(allocator, try .fromGlobalEnum(allocator, @"enum"));
+        try self.enums.append(allocator, try .fromGlobalEnum(allocator, @"enum"));
     }
 }
 
@@ -357,6 +369,29 @@ fn castFlags(self: *Context, allocator: Allocator) !void {
             continue;
         }
         try self.flags.append(allocator, try .fromGlobalEnum(allocator, @"enum"));
+    }
+}
+
+fn castModules(self: *Context, allocator: Allocator) !void {
+    // This logic is a dumb way to group utility functions into modules
+    var cur: ?*Module = null;
+    for (self.api.utility_functions) |function| {
+        if (cur == null or !std.mem.eql(u8, cur.?.name, function.category)) {
+            cur = try self.modules.addOne(allocator);
+            cur.?.* = try .init(allocator, function.category);
+        }
+    }
+    var i: usize = 0;
+    for (self.modules.items) |*module| {
+        var functions: ArrayList(Function) = .empty;
+        for (self.api.utility_functions[i..], 1..) |function, j| {
+            if (!std.mem.eql(u8, module.name, function.category)) {
+                i = j;
+                break;
+            }
+            try functions.append(allocator, try .fromUtilityFunction(allocator, function));
+        }
+        module.functions = try functions.toOwnedSlice(allocator);
     }
 }
 
@@ -475,7 +510,6 @@ const StringHashMap = std.StringHashMapUnmanaged;
 
 const case = @import("case");
 
-const CodeApi = @import("CodeApi.zig");
 const GodotApi = @import("GodotApi.zig");
 const util = @import("util.zig");
 const Config = @import("Config.zig");
