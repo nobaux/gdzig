@@ -25,7 +25,7 @@ jobs:
         uses: mlugg/setup-zig@v2
 
       - name: Build documentation
-        run: zig build docs
+        run: zig build docs -Dheaders=DEPENDENCY
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
