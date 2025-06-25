@@ -1,295 +1,343 @@
-const std = @import("std");
-
-const BINDGEN_INSTALL_RELPATH = "bindgen";
-
-const DependencyModules = struct {
-    modules: std.StringHashMap(*std.Build.Module),
-    godot_cpp_dep: *std.Build.Dependency,
-};
-
-fn getDependencyModules(b: *std.Build, precision: []const u8) DependencyModules {
-    var modules = std.StringHashMap(*std.Build.Module).init(b.allocator);
-
-    const lib_case = b.dependency("case", .{});
-    modules.put("case", lib_case.module("case")) catch @panic("Failed to add case module");
-
-    const lib_vector = b.dependency("vector_z", .{
-        .precision = precision,
-    });
-    modules.put("vector_z", lib_vector.module("vector_z")) catch @panic("Failed to add vector_z module");
-
-    const godot_cpp = b.dependency("godot_cpp", .{});
-
-    const mvzr = b.dependency("mvzr", .{});
-    modules.put("mvzr", mvzr.module("mvzr")) catch @panic("Failed to add mvzr module");
-
-    const zimdjson = b.dependency("zimdjson", .{});
-    modules.put("zimdjson", zimdjson.module("zimdjson")) catch @panic("Failed to add zimdjson module");
-
-    return DependencyModules{
-        .modules = modules,
-        .godot_cpp_dep = godot_cpp,
+pub fn build(b: *Build) !void {
+    // Options
+    const opt: Options = .{
+        .target = b.standardTargetOptions(.{}),
+        .optimize = b.standardOptimizeOption(.{}),
+        .godot_path = b.option([]const u8, "godot", "Path to Godot engine binary [default: `godot`]") orelse "godot",
+        .precision = b.option([]const u8, "precision", "Floating point precision, either `float` or `double` [default: `float`]") orelse "float",
+        .architecture = b.option([]const u8, "arch", "32") orelse "64",
+        .headers = blk: {
+            const input = b.option([]const u8, "headers", "Where to source Godot header files. [options: GENERATED, VENDORED, DEPENDENCY, <dir_path>] [default: GENERATED]") orelse "GENERATED";
+            const normalized = std.ascii.allocLowerString(b.allocator, input) catch unreachable;
+            const tag = std.meta.stringToEnum(Tag(HeadersSource), normalized);
+            break :blk if (tag) |t| switch (t) {
+                .dependency => .dependency,
+                .generated => .generated,
+                .vendored => .vendored,
+                // edge case if the user uses the literal path "custom"
+                .custom => .{ .custom = b.path("custom") },
+            } else if (normalized.len == 0)
+                .generated
+            else
+                .{ .custom = b.path(normalized) };
+        },
     };
+
+    // Targets
+    const case = buildCase(b);
+    const mvzr = buildMvzr(b);
+    const vector_z = buildVectorZ(b, opt);
+    const zimdjson = buildZimdjson(b);
+
+    const headers = installHeaders(b, opt);
+
+    const gdextension = buildGdExtension(b, opt, headers.header);
+    const bindgen = buildBindgen(b, opt);
+    const bindings = buildBindings(b, opt, bindgen.exe, headers.root);
+
+    const lib = buildLibrary(b, opt, bindings.path);
+    const docs = buildDocs(b, lib.lib);
+    const tests = buildTests(b, lib.root, bindgen.mod);
+
+    // Dependencies
+    bindgen.mod.addImport("gdextension", gdextension.mod);
+    bindgen.mod.addImport("case", case.mod);
+    bindgen.mod.addImport("mvzr", mvzr.mod);
+    bindgen.mod.addImport("zimdjson", zimdjson.mod);
+
+    lib.core.addImport("gdextension", gdextension.mod);
+    lib.core.addImport("godot", lib.root);
+
+    lib.root.addImport("godot_core", lib.core);
+    lib.root.addImport("vector", vector_z.mod);
+
+    // Steps
+    b.step("bindgen", "Build the bindgen executable").dependOn(&bindgen.install.step);
+    b.step("bindings", "Generate bindings").dependOn(&bindings.install.step);
+    b.step("docs", "Install docs into zig-out/docs").dependOn(docs.step);
+
+    const test_ = b.step("test", "Run tests");
+    test_.dependOn(&tests.bindgen.step);
+    test_.dependOn(&tests.module.step);
+
+    // Install
+    b.installArtifact(bindgen.exe);
+    b.installArtifact(lib.lib);
 }
 
-pub fn build(b: *std.Build) !void {
-    const target = b.standardTargetOptions(.{});
-    const optimize = b.standardOptimizeOption(.{});
-    const godot_path = b.option([]const u8, "godot", "Path to Godot engine binary [default: `godot`]") orelse "godot";
-    const precision = b.option([]const u8, "precision", "Floating point precision, either `float` or `double` [default: `float`]") orelse "float";
-    const arch = b.option([]const u8, "arch", "32") orelse "64";
-    const headers = b.option(
-        []const u8,
-        "headers",
-        "Where to source Godot header files. [options: GENERATED, VENDORED, DEPENDENCY, <dir_path>] [default: GENERATED]",
-    );
-
-    const headers_source = parseHeadersOption(b, headers);
-    const dep_modules = getDependencyModules(b, precision);
-
-    const build_options = b.addOptions();
-    build_options.addOption([]const u8, "precision", precision);
-    build_options.addOption([]const u8, "headers", switch (headers_source) {
-        .dependency => "DEPENDENCY",
-        .vendored => "VENDORED",
-        .generated => "GENERATED",
-        .custom => headers.?,
-    });
-
-    const gdextension = buildGdExtension(b, godot_path, headers_source, dep_modules.godot_cpp_dep);
-
-    const gdextension_c = b.addTranslateC(.{
-        .link_libc = true,
-        .optimize = optimize,
-        .target = target,
-        .root_source_file = gdextension.iface_headers,
-    });
-    gdextension_c.step.dependOn(gdextension.step);
-
-    const gdextension_mod = b.createModule(.{
-        .root_source_file = gdextension_c.getOutput(),
-        .optimize = optimize,
-        .target = target,
-        .link_libc = true,
-    });
-
-    const binding_generator = b.addExecutable(.{
-        .name = "binding_generator",
-        .target = target,
-        .optimize = optimize,
-        .root_source_file = b.path("binding_generator/main.zig"),
-        .link_libc = true,
-    });
-    binding_generator.root_module.addImport("gdextension", gdextension_mod);
-    b.installArtifact(binding_generator);
-
-    const binding_generator_step = b.step("binding_generator", "Build the binding_generator program");
-    binding_generator_step.dependOn(&binding_generator.step);
-
-    binding_generator.root_module.addImport("case", dep_modules.modules.get("case").?);
-    binding_generator.root_module.addImport("mvzr", dep_modules.modules.get("mvzr").?);
-    binding_generator.root_module.addImport("zimdjson", dep_modules.modules.get("zimdjson").?);
-
-    const bindgen = buildBindgen(b, gdextension.iface_headers.dirname(), binding_generator, precision, arch);
-
-    const godot_module = b.addModule("godot", .{
-        .root_source_file = b.path("src/root.zig"),
-        .target = target,
-        .optimize = optimize,
-    });
-    godot_module.addOptions("build_options", build_options);
-    godot_module.addIncludePath(bindgen.output_path);
-
-    godot_module.addImport("vector", dep_modules.modules.get("vector_z").?);
-
-    const godot_core_module = b.addModule("godot_core", .{
-        .root_source_file = bindgen.godot_core_path,
-        .target = target,
-        .optimize = optimize,
-    });
-    godot_core_module.addImport("godot", godot_module);
-    godot_core_module.addImport("gdextension", gdextension_mod);
-
-    godot_module.addImport("godot_core", godot_core_module);
-
-    const lib = b.addSharedLibrary(.{
-        .name = "godot",
-        .root_module = godot_module,
-    });
-    b.installArtifact(lib);
-
-    const module_tests = b.addTest(.{
-        .root_module = godot_module,
-    });
-    const bindgen_tests = b.addTest(.{
-        .root_module = binding_generator.root_module,
-    });
-    const run_module_tests = b.addRunArtifact(module_tests);
-    const run_bindgen_tests = b.addRunArtifact(bindgen_tests);
-    const run_tests_step = b.step("test", "Run tests");
-    run_tests_step.dependOn(&run_module_tests.step);
-    run_tests_step.dependOn(&run_bindgen_tests.step);
-
-    // Docs
-    const docs = b.addInstallDirectory(.{
-        .source_dir = lib.getEmittedDocs(),
-        .install_dir = .prefix,
-        .install_subdir = "docs",
-    });
-    const docs_step = b.step("docs", "Install docs into zig-out/docs");
-    docs_step.dependOn(&docs.step);
-}
-
-const BindgenOutput = struct {
-    step: *std.Build.Step,
-    godot_core_path: std.Build.LazyPath,
-    output_path: std.Build.LazyPath,
-};
-
-/// Build the zig bindings using the binding_generator program,
-fn buildBindgen(
-    b: *std.Build,
-    godot_headers_path: std.Build.LazyPath,
-    binding_generator: *std.Build.Step.Compile,
-    precision: []const u8,
-    arch: []const u8,
-) BindgenOutput {
-    const bind_step = b.step("bindgen", "Generate godot bindings");
-    const run_binding_generator = std.Build.Step.Run.create(b, "run_binding_generator");
-    run_binding_generator.step.dependOn(&binding_generator.step);
-
-    const mode = if (b.verbose) "verbose" else "quiet";
-
-    run_binding_generator.addArtifactArg(binding_generator);
-    run_binding_generator.addDirectoryArg(godot_headers_path);
-    const output_lazypath = run_binding_generator.addOutputDirectoryArg("bindgen_cache");
-    run_binding_generator.addArgs(&.{ precision, arch, mode });
-    const install_bindgen = b.addInstallDirectory(.{
-        .source_dir = output_lazypath,
-        .install_dir = .prefix,
-        .install_subdir = BINDGEN_INSTALL_RELPATH,
-    });
-    bind_step.dependOn(&install_bindgen.step);
-    return .{
-        .step = bind_step,
-        .output_path = output_lazypath,
-        .godot_core_path = output_lazypath.path(b, "core.zig"),
-    };
-}
-
-const GDExtensionOutput = struct {
-    step: *std.Build.Step,
-    api_json: std.Build.LazyPath,
-    iface_headers: std.Build.LazyPath,
-};
-
-const HeadersOption = enum {
-    dependency,
-    vendored,
-    generated,
-    custom,
-};
-
-const HeadersSource = union(HeadersOption) {
+const HeadersSource = union(enum) {
     dependency: void,
     vendored: void,
     generated: void,
-    custom: std.Build.LazyPath,
+    custom: Build.LazyPath,
 };
 
-fn parseHeadersOption(b: *std.Build, headers_option: ?[]const u8) HeadersSource {
-    if (headers_option == null or headers_option.?.len == 0) {
-        return .generated;
-    }
+const Options = struct {
+    target: Target,
+    optimize: Optimize,
+    godot_path: []const u8,
+    precision: []const u8,
+    architecture: []const u8,
+    headers: HeadersSource,
+};
 
-    const headers_option_lower = std.ascii.allocLowerString(b.allocator, headers_option.?) catch @panic("OOM");
-    const header_option = std.meta.stringToEnum(HeadersOption, headers_option_lower);
+// Dependency: case
+fn buildCase(
+    b: *Build,
+) struct {
+    dep: *Dependency,
+    mod: *Module,
+} {
+    const dep = b.dependency("case", .{});
+    const mod = dep.module("case");
 
-    if (header_option) |opt| switch (opt) {
-        .dependency => return .dependency,
-        .generated => return .generated,
-        .vendored => return .vendored,
-        else => {},
-    };
-
-    return .{
-        .custom = .{
-            .cwd_relative = headers_option.?,
-        },
-    };
+    return .{ .dep = dep, .mod = mod };
 }
 
-/// Dump the Godot headers and interface files to the bindgen_path.
-fn buildGdExtension(
-    b: *std.Build,
-    godot_path: []const u8,
-    headers_source: HeadersSource,
-    godot_cpp_dep: *std.Build.Dependency,
-) GDExtensionOutput {
-    const dump_step = b.step("dump", "dump godot headers");
-    var iface_headers: std.Build.LazyPath = undefined;
-    var api_json: std.Build.LazyPath = undefined;
+// Dependency: vector_z
+fn buildVectorZ(
+    b: *Build,
+    opt: Options,
+) struct {
+    dep: *Dependency,
+    mod: *Module,
+} {
+    const dep = b.dependency("vector_z", .{ .precision = opt.precision });
+    const mod = dep.module("vector_z");
 
-    switch (headers_source) {
-        .dependency => {
-            const gdextension_interface_h = godot_cpp_dep.builder.path("gdextension/gdextension_interface.h");
-            const extension_api_json = godot_cpp_dep.builder.path("gdextension/extension_api.json");
-            iface_headers = gdextension_interface_h;
-            api_json = extension_api_json;
+    return .{ .dep = dep, .mod = mod };
+}
 
-            gdextension_interface_h.addStepDependencies(dump_step);
-            extension_api_json.addStepDependencies(dump_step);
-        },
-        .generated => {
-            const write_files = b.addWriteFiles();
-            const tmpdir = write_files.getDirectory();
+// Dependency: mvzr
+fn buildMvzr(
+    b: *Build,
+) struct {
+    dep: *Dependency,
+    mod: *Module,
+} {
+    const dep = b.dependency("mvzr", .{});
+    const mod = dep.module("mvzr");
 
-            const dump_cmd = b.addSystemCommand(&.{
-                godot_path,
+    return .{ .dep = dep, .mod = mod };
+}
+
+// Dependency: zimdjson
+fn buildZimdjson(
+    b: *Build,
+) struct {
+    dep: *Dependency,
+    mod: *Module,
+} {
+    const dep = b.dependency("zimdjson", .{});
+    const mod = dep.module("zimdjson");
+
+    return .{ .dep = dep, .mod = mod };
+}
+
+// GDExtension Headers
+fn installHeaders(
+    b: *Build,
+    opt: Options,
+) struct {
+    root: Build.LazyPath,
+    api: Build.LazyPath,
+    header: Build.LazyPath,
+} {
+    const files = b.addWriteFiles();
+    const out = switch (opt.headers) {
+        .dependency => b.dependency("godot_cpp", .{}).path("gdextension"),
+        .generated => blk: {
+            const tmp = b.addWriteFiles();
+            const out = tmp.getDirectory();
+            const dump = b.addSystemCommand(&.{
+                opt.godot_path,
                 "--dump-extension-api-with-docs",
                 "--dump-gdextension-interface",
                 "--headless",
             });
-            dump_cmd.setCwd(tmpdir);
-
-            _ = dump_cmd.captureStdOut();
-            _ = dump_cmd.captureStdErr();
-
-            iface_headers = tmpdir.path(b, "gdextension_interface.h");
-            api_json = tmpdir.path(b, "extension_api.json");
-
-            dump_step.dependOn(&dump_cmd.step);
+            dump.setCwd(out);
+            _ = dump.captureStdOut();
+            _ = dump.captureStdErr();
+            files.step.dependOn(&dump.step);
+            break :blk out;
         },
-        .vendored => {
-            const vendor_path = b.path("vendor");
-            const vendor_json = b.addInstallFile(vendor_path.path(b, "extension_api.json"), "extension_api.json");
-            const vendor_h = b.addInstallFile(vendor_path.path(b, "gdextension_interface.h"), "gdextension_interface.h");
-            iface_headers = vendor_h.source;
-            api_json = vendor_json.source;
-            dump_step.dependOn(&vendor_h.step);
-            dump_step.dependOn(&vendor_json.step);
-        },
-        .custom => |custom_path| {
-            const custom_json = custom_path.path(b, "extension_api.json");
-            const custom_h = custom_path.path(b, "gdextension_interface.h");
-            const install_iface_headers = b.addInstallFile(
-                custom_json,
-                b.pathJoin(&.{ BINDGEN_INSTALL_RELPATH, "extension_api.json" }),
-            );
-            dump_step.dependOn(&install_iface_headers.step);
-            iface_headers = install_iface_headers.source;
-            const install_api_json = b.addInstallFile(
-                custom_h,
-                b.pathJoin(&.{ BINDGEN_INSTALL_RELPATH, "gdextension_interface.h" }),
-            );
-            dump_step.dependOn(&install_api_json.step);
-            api_json = install_api_json.source;
-        },
-    }
+        .vendored => b.path("vendor"),
+        .custom => |root| root,
+    };
 
-    return GDExtensionOutput{
-        .step = dump_step,
-        .api_json = api_json,
-        .iface_headers = iface_headers,
+    return .{
+        .root = files.getDirectory(),
+        .api = files.addCopyFile(out.path(b, "extension_api.json"), "extension_api.json"),
+        .header = files.addCopyFile(out.path(b, "gdextension_interface.h"), "gdextension_interface.h"),
     };
 }
+
+// GDExtension
+fn buildGdExtension(
+    b: *Build,
+    opt: Options,
+    header: Build.LazyPath,
+) struct {
+    mod: *Module,
+    source: *Step.TranslateC,
+} {
+    const source = b.addTranslateC(.{
+        .link_libc = true,
+        .optimize = opt.optimize,
+        .target = opt.target,
+        .root_source_file = header,
+    });
+
+    const mod = b.createModule(.{
+        .root_source_file = source.getOutput(),
+        .optimize = opt.optimize,
+        .target = opt.target,
+        .link_libc = true,
+    });
+
+    return .{
+        .mod = mod,
+        .source = source,
+    };
+}
+
+// Binding Generator
+fn buildBindgen(
+    b: *Build,
+    opt: Options,
+) struct {
+    install: *Step.InstallArtifact,
+    mod: *Module,
+    exe: *Step.Compile,
+} {
+    const mod = b.addModule("bindgen", .{
+        .target = opt.target,
+        .optimize = opt.optimize,
+        .root_source_file = b.path("bindgen/main.zig"),
+        .link_libc = true,
+    });
+
+    const exe = b.addExecutable(.{
+        .name = "bindgen",
+        .root_module = mod,
+    });
+
+    const install = b.addInstallArtifact(exe, .{});
+
+    return .{ .install = install, .mod = mod, .exe = exe };
+}
+
+// Bindgen
+fn buildBindings(
+    b: *Build,
+    opt: Options,
+    bindgen: *Step.Compile,
+    headers: Build.LazyPath,
+) struct {
+    run: *Step.Run,
+    install: *Step.InstallDir,
+    path: Build.LazyPath,
+} {
+    const run = b.addRunArtifact(bindgen);
+    run.addDirectoryArg(headers);
+    const path = run.addOutputDirectoryArg(b.path("bindings").getPath(b));
+    run.addArg(opt.precision);
+    run.addArg(opt.architecture);
+    run.addArg(if (b.verbose) "verbose" else "quiet");
+
+    const install = b.addInstallDirectory(.{
+        .source_dir = path,
+        .install_dir = .prefix,
+        .install_subdir = "bindings",
+    });
+
+    return .{ .install = install, .run = run, .path = path };
+}
+
+// Godot
+fn buildLibrary(
+    b: *Build,
+    opt: Options,
+    bindings: Build.LazyPath,
+) struct {
+    core: *Module,
+    lib: *Step.Compile,
+    root: *Module,
+} {
+    const core = b.addModule("godot_core", .{
+        .root_source_file = bindings.path(b, "core.zig"),
+        .target = opt.target,
+        .optimize = opt.optimize,
+    });
+
+    const root = b.addModule("godot", .{
+        .root_source_file = b.path("src/root.zig"),
+        .target = opt.target,
+        .optimize = opt.optimize,
+    });
+
+    const options = b.addOptions();
+    options.addOption([]const u8, "architecture", opt.architecture);
+    options.addOption([]const u8, "precision", opt.precision);
+    root.addOptions("build_options", options);
+
+    const lib = b.addLibrary(.{
+        .name = "godot",
+        .root_module = root,
+        .linkage = .dynamic,
+    });
+
+    return .{ .core = core, .lib = lib, .root = root };
+}
+
+// Tests
+fn buildTests(
+    b: *Build,
+    godot_module: *Module,
+    bindgen_module: *Module,
+) struct {
+    bindgen: *Step.Run,
+    module: *Step.Run,
+} {
+    const bindgen_tests = b.addTest(.{
+        .root_module = bindgen_module,
+    });
+    const module_tests = b.addTest(.{
+        .root_module = godot_module,
+    });
+
+    const bindgen_run = b.addRunArtifact(bindgen_tests);
+    const module_run = b.addRunArtifact(module_tests);
+
+    return .{
+        .bindgen = bindgen_run,
+        .module = module_run,
+    };
+}
+
+// Docs
+fn buildDocs(
+    b: *Build,
+    lib: *Step.Compile,
+) struct {
+    step: *Step,
+} {
+    const install = b.addInstallDirectory(.{
+        .source_dir = lib.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+
+    return .{
+        .step = &install.step,
+    };
+}
+
+const std = @import("std");
+const Build = std.Build;
+const Dependency = std.Build.Dependency;
+const Module = std.Build.Module;
+const Optimize = std.builtin.OptimizeMode;
+const Step = std.Build.Step;
+const Tag = std.meta.Tag;
+const Target = std.Build.ResolvedTarget;

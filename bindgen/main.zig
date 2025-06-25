@@ -8,7 +8,7 @@ pub fn main() !void {
     defer std.process.argsFree(allocator, args);
 
     if (args.len < 5) {
-        std.debug.print("Usage: binding_generator export_path generated_path precision arch verbose\n", .{});
+        std.debug.print("Usage: bindgen <vendor_path> <output_path> <float|double> <32|64> <quiet|verbose>\n", .{});
         return;
     }
 

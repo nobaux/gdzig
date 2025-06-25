@@ -9,7 +9,7 @@
         },
         .godot_cpp = .{
             .url = "https://github.com/godotengine/godot-cpp/archive/refs/heads/4.4.tar.gz",
-            .hash = "N-V-__8AAJvIeABgT5UIxF6GOJediw0qZYqfwvrgwovjmevl",
+            .hash = "N-V-__8AANvNeAD_SV1i3OCIDHR74eH7M2BTkpa3UyVKTHph",
         },
         .vector_z = .{
             .url = "git+https://github.com/doubleword-labs/vector-z.git#49ca3fbad6e732a1fb7f3699baaa637826beabec",
@@ -33,7 +33,7 @@
     .paths = .{
         "LICENSE",
         "README.md",
-        "binding_generator",
+        "bindgen",
         "src",
         "build.zig",
         "build.zig.zon",
