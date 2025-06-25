@@ -186,9 +186,9 @@ pub fn as(self_const: Variant, comptime T: type) T {
     if (tid == godot.c.GDEXTENSION_VARIANT_TYPE_OBJECT) {
         var obj: ?*anyopaque = null;
         to_type[godot.c.GDEXTENSION_VARIANT_TYPE_OBJECT].?(@ptrCast(&obj), @ptrCast(&self.value));
-        const godotObj: *godot.Object = @ptrCast(@alignCast(godot.objectGetInstanceBinding(obj)));
+        const godotObj: *godot.core.Object = @ptrCast(@alignCast(godot.core.objectGetInstanceBinding(obj)));
         const RealType = @typeInfo(T).pointer.child;
-        if (RealType == godot.Object) {
+        if (RealType == godot.core.Object) {
             return godotObj;
         } else {
             const classTag = godot.classdbGetClassTag(@ptrCast(godot.getClassName(RealType)));
