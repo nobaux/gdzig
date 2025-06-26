@@ -1,0 +1,28 @@
+[
+  {
+    "label": "run example",
+    "command": "zig build run",
+    "cwd": "example",
+    "reveal_target": "dock",
+    "hide": "on_success",
+    "use_new_terminal": false
+  },
+  {
+    "label": "run tests",
+    "command": "zig build test",
+    "reveal_target": "dock",
+    "use_new_terminal": false
+  },
+  {
+    "label": "generate bindings",
+    "command": "zig build bindings",
+    "reveal_target": "dock",
+    "use_new_terminal": false
+  },
+  {
+    "label": "generate documentation",
+    "command": "zig build docs",
+    "reveal_target": "dock",
+    "use_new_terminal": false
+  }
+]
