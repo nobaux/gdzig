@@ -29,7 +29,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build documentation
-        run: zig build docs -Dheaders=DEPENDENCY
+        run: zig build docs --release=fast -Dheaders=DEPENDENCY
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

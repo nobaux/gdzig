@@ -2,7 +2,7 @@ pub fn generate(ctx: *Context) !void {
     try generateBuiltins(ctx);
     try generateClasses(ctx);
     try generateGlobalEnums(ctx);
-    try generateModules(ctx);
+    // try generateModules(ctx);
     try generateUtilityFunctions(ctx);
 
     try generateCore(ctx);
@@ -716,7 +716,7 @@ fn generateCore(ctx: *Context) !void {
 
     try w.writeLine(
         \\const std = @import("std");
-        \\const godot = @import("godot");
+        \\const godot = @import("../root.zig");
         \\pub const util = @import("util.zig");
         \\pub const c = @import("gdextension");
     );
@@ -830,24 +830,22 @@ fn generateCore(ctx: *Context) !void {
 
 fn generateImports(w: *Writer, imports: *const Imports) !void {
     try w.writeLine(
-        \\const godot = @import("godot");
-        \\const vector = @import("vector");
+        \\const godot = @import("../root.zig");
     );
 
     var iter = imports.iterator();
     while (iter.next()) |import| {
         if (util.isBuiltinType(import.*)) continue;
 
-        const path = if (std.mem.startsWith(u8, import.*, "Vector"))
-            "godot"
-        else if (std.mem.eql(u8, import.*, "Variant"))
-            "godot"
-        else if (std.mem.eql(u8, import.*, "global"))
-            "godot"
-        else
-            "godot.core";
-
-        try w.printLine("const {0s} = {1s}.{0s};", .{ import.*, path });
+        if (std.mem.startsWith(u8, import.*, "Vector")) {
+            try w.printLine("const {0s} = @import(\"vector\").{0s};", .{import.*});
+        } else if (std.mem.eql(u8, import.*, "Variant")) {
+            try w.writeLine("const Variant = @import(\"../Variant.zig\");");
+        } else if (std.mem.eql(u8, import.*, "global")) {
+            try w.writeLine("const global = @import(\"global.zig\");");
+        } else {
+            try w.printLine("const {0s} = @import(\"core.zig\").{0s};", .{import.*});
+        }
     }
 }
 

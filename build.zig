@@ -35,9 +35,9 @@ pub fn build(b: *Build) !void {
     const bindgen = buildBindgen(b, opt);
     const bindings = buildBindings(b, opt, bindgen.exe, headers.root);
 
-    const lib = buildLibrary(b, opt, bindings.path);
-    const docs = buildDocs(b, lib.lib);
-    const tests = buildTests(b, lib.root, bindgen.mod);
+    const godot = buildLibrary(b, opt, bindings.path);
+    const docs = buildDocs(b, godot.lib);
+    const tests = buildTests(b, godot.mod, bindgen.mod);
 
     // Dependencies
     bindgen.mod.addImport("gdextension", gdextension.mod);
@@ -45,11 +45,8 @@ pub fn build(b: *Build) !void {
     bindgen.mod.addImport("mvzr", mvzr.mod);
     bindgen.mod.addImport("zimdjson", zimdjson.mod);
 
-    lib.core.addImport("gdextension", gdextension.mod);
-    lib.core.addImport("godot", lib.root);
-
-    lib.root.addImport("godot_core", lib.core);
-    lib.root.addImport("vector", vector_z.mod);
+    godot.mod.addImport("gdextension", gdextension.mod);
+    godot.mod.addImport("vector", vector_z.mod);
 
     // Steps
     b.step("bindgen", "Build the bindgen executable").dependOn(&bindgen.install.step);
@@ -62,7 +59,7 @@ pub fn build(b: *Build) !void {
 
     // Install
     b.installArtifact(bindgen.exe);
-    b.installArtifact(lib.lib);
+    b.installArtifact(godot.lib);
 }
 
 const HeadersSource = union(enum) {
@@ -260,18 +257,15 @@ fn buildLibrary(
     opt: Options,
     bindings: Build.LazyPath,
 ) struct {
-    core: *Module,
     lib: *Step.Compile,
-    root: *Module,
+    mod: *Module,
 } {
-    const core = b.addModule("godot_core", .{
-        .root_source_file = bindings.path(b, "core.zig"),
-        .target = opt.target,
-        .optimize = opt.optimize,
-    });
+    const tmp = b.addWriteFiles();
+    const src = tmp.addCopyDirectory(b.path("src"), "./", .{});
+    _ = tmp.addCopyDirectory(bindings, "./bindings", .{});
 
     const root = b.addModule("godot", .{
-        .root_source_file = b.path("src/root.zig"),
+        .root_source_file = src.path(b, "root.zig"),
         .target = opt.target,
         .optimize = opt.optimize,
     });
@@ -287,7 +281,7 @@ fn buildLibrary(
         .linkage = .dynamic,
     });
 
-    return .{ .core = core, .lib = lib, .root = root };
+    return .{ .lib = lib, .mod = root };
 }
 
 // Tests
