@@ -14,7 +14,7 @@ expected until a stable version is released. Issue reports, feature requests, an
 
 ## Usage:
 
-see [Examples](https://github.com/doubleword-labs/godot-zig-examples) for reference.
+See the [example](example/) folder for reference.
 
 ## Code Sample:
 
