@@ -1,9 +1,11 @@
 # gdzig
 
-A WIP Zig bindings for Godot 4.
-Features are being gradually added to meet the needs of a demo game.
-Bugs and missing features are expected until a stable version finally released.
-Issue report, feature request and pull request are all welcome.
+Idiomatic Zig bindings for Godot 4.
+
+## DISCLAIMER
+
+This library is currently undergoing rapid development and refactoring as we figure out the best API to expose. Bugs and missing features are
+expected until a stable version is released. Issue reports, feature requests, and pull requests are all very welcome.
 
 ## Prerequisites
 
