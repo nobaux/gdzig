@@ -1,8 +1,9 @@
 const std = @import("std");
 
-pub const core = @import("godot_core");
-pub const c = core.c;
-pub const global = core.global;
+pub const c = @import("gdextension");
+pub const core = @import("bindings/core.zig");
+pub const global = @import("bindings/core.zig").global;
+
 pub const support = @import("support.zig");
 pub const Variant = @import("Variant.zig");
 
