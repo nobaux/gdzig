@@ -1,4 +1,4 @@
-# godot-zig
+# gdzig
 
 A WIP Zig bindings for Godot 4.
 Features are being gradually added to meet the needs of a demo game.
@@ -68,7 +68,7 @@ pub fn on_toggled(self: *Self, toggled_on: bool) void {
 }
 
 const std = @import("std");
-const godot = @import("godot");
+const godot = @import("gdzig");
 const Base = godot.core.Control;
 const Button = godot.core.Button;
 const CheckBox = godot.core.CheckBox;

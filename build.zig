@@ -35,9 +35,9 @@ pub fn build(b: *Build) !void {
     const bindgen = buildBindgen(b, opt);
     const bindings = buildBindings(b, opt, bindgen.exe, headers.root);
 
-    const godot = buildLibrary(b, opt, bindings.path);
-    const docs = buildDocs(b, godot.lib);
-    const tests = buildTests(b, godot.mod, bindgen.mod);
+    const gdzig = buildLibrary(b, opt, bindings.path);
+    const docs = buildDocs(b, gdzig.lib);
+    const tests = buildTests(b, gdzig.mod, bindgen.mod);
 
     // Dependencies
     bindgen.mod.addImport("gdextension", gdextension.mod);
@@ -45,8 +45,8 @@ pub fn build(b: *Build) !void {
     bindgen.mod.addImport("mvzr", mvzr.mod);
     bindgen.mod.addImport("zimdjson", zimdjson.mod);
 
-    godot.mod.addImport("gdextension", gdextension.mod);
-    godot.mod.addImport("vector", vector_z.mod);
+    gdzig.mod.addImport("gdextension", gdextension.mod);
+    gdzig.mod.addImport("vector", vector_z.mod);
 
     // Steps
     b.step("bindgen", "Build the bindgen executable").dependOn(&bindgen.install.step);
@@ -59,7 +59,7 @@ pub fn build(b: *Build) !void {
 
     // Install
     b.installArtifact(bindgen.exe);
-    b.installArtifact(godot.lib);
+    b.installArtifact(gdzig.lib);
 }
 
 const HeadersSource = union(enum) {
@@ -264,7 +264,7 @@ fn buildLibrary(
     const src = tmp.addCopyDirectory(b.path("src"), "./", .{});
     _ = tmp.addCopyDirectory(bindings, "./bindings", .{});
 
-    const root = b.addModule("godot", .{
+    const root = b.addModule("gdzig", .{
         .root_source_file = src.path(b, "root.zig"),
         .target = opt.target,
         .optimize = opt.optimize,
@@ -276,7 +276,7 @@ fn buildLibrary(
     root.addOptions("build_options", options);
 
     const lib = b.addLibrary(.{
-        .name = "godot",
+        .name = "gdzig",
         .root_module = root,
         .linkage = .dynamic,
     });
