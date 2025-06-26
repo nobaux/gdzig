@@ -39,7 +39,7 @@ pub const Value = struct {
 
     pub fn fromGlobalEnum(allocator: Allocator, api: GodotApi.GlobalEnum.Value) !Value {
         const doc = if (api.description) |desc| try allocator.dupe(u8, desc) else null;
-        errdefer allocator.free(doc orelse &.{});
+        errdefer allocator.free(doc orelse "");
 
         const name = try case.allocTo(allocator, .snake, api.name);
         errdefer allocator.free(name);

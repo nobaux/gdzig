@@ -15,7 +15,7 @@ is_vararg: bool,
 
 pub fn fromUtilityFunction(allocator: Allocator, function: GodotApi.UtilityFunction) !Function {
     const doc = if (function.description) |desc| try allocator.dupe(u8, desc) else null;
-    errdefer allocator.free(doc orelse &.{});
+    errdefer allocator.free(doc orelse "");
 
     const name = try case.allocTo(allocator, .camel, function.name);
     errdefer allocator.free(name);
@@ -48,7 +48,7 @@ pub fn fromUtilityFunction(allocator: Allocator, function: GodotApi.UtilityFunct
 }
 
 pub fn deinit(self: *Function, allocator: Allocator) void {
-    allocator.free(self.doc orelse &.{});
+    allocator.free(self.doc orelse "");
     allocator.free(self.name);
     for (self.parameters) |param| {
         param.deinit(allocator);
