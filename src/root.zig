@@ -5,7 +5,7 @@ pub const core = @import("bindings/core.zig");
 pub const global = @import("bindings/core.zig").global;
 
 pub const support = @import("support.zig");
-pub const Variant = @import("Variant.zig");
+pub const Variant = @import("Variant.zig").Variant;
 
 pub var general_allocator: std.mem.Allocator = undefined;
 
@@ -267,7 +267,7 @@ pub fn registerClass(comptime T: type) void {
 
         pub fn setBind(p_instance: c.GDExtensionClassInstancePtr, name: c.GDExtensionConstStringNamePtr, value: c.GDExtensionConstVariantPtr) callconv(.C) c.GDExtensionBool {
             if (p_instance) |p| {
-                return if (T._set(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(name))).*, @as(*Variant, @ptrCast(@constCast(value))).*)) 1 else 0; //fn _set(_: *Self, name: Godot.core.StringName, _: Godot.Variant) bool
+                return if (T._set(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(name))).*, @as(*Variant, @ptrCast(@alignCast(@constCast(value)))).*)) 1 else 0; //fn _set(_: *Self, name: Godot.core.StringName, _: Godot.Variant) bool
             } else {
                 return 0;
             }
@@ -275,7 +275,7 @@ pub fn registerClass(comptime T: type) void {
 
         pub fn getBind(p_instance: c.GDExtensionClassInstancePtr, name: c.GDExtensionConstStringNamePtr, value: c.GDExtensionVariantPtr) callconv(.C) c.GDExtensionBool {
             if (p_instance) |p| {
-                return if (T._get(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(name))).*, @as(*Variant, @ptrCast(value)))) 1 else 0; //fn _get(self:*Self, name: core.StringName, value:*Variant) bool
+                return if (T._get(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(name))).*, @as(*Variant, @ptrCast(@alignCast(value))))) 1 else 0; //fn _get(self:*Self, name: core.StringName, value:*Variant) bool
             } else {
                 return 0;
             }
@@ -341,7 +341,7 @@ pub fn registerClass(comptime T: type) void {
 
         pub fn propertyGetRevertBind(p_instance: c.GDExtensionClassInstancePtr, p_name: c.GDExtensionConstStringNamePtr, r_ret: c.GDExtensionVariantPtr) callconv(.C) c.GDExtensionBool {
             if (p_instance) |p| {
-                return if (T._property_get_revert(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(p_name))).*, @as(*Variant, @ptrCast(r_ret)))) 1 else 0; //fn _property_get_revert(self:*Self, name: core.StringName, ret:*Variant) bool
+                return if (T._property_get_revert(@ptrCast(@alignCast(p)), @as(*core.StringName, @ptrCast(@constCast(p_name))).*, @as(*Variant, @ptrCast(@alignCast(r_ret))))) 1 else 0; //fn _property_get_revert(self:*Self, name: core.StringName, ret:*Variant) bool
             } else {
                 return 0;
             }
@@ -445,7 +445,7 @@ pub fn MethodBinderT(comptime MethodType: type) type {
                 if (ReturnType == void or ReturnType == null) {
                     @call(.auto, method, .{});
                 } else {
-                    @as(*Variant, @ptrCast(p_return)).* = Variant.initFrom(@call(.auto, method, .{}));
+                    @as(*Variant, @ptrCast(p_return)).* = Variant.init(@call(.auto, method, .{}));
                 }
             } else {
                 var variants: [ArgCount - 1]Variant = undefined;
@@ -461,7 +461,7 @@ pub fn MethodBinderT(comptime MethodType: type) type {
                 if (ReturnType == void or ReturnType == null) {
                     @call(.auto, method, args);
                 } else {
-                    @as(*Variant, @ptrCast(p_return)).* = Variant.initFrom(@call(.auto, method, args));
+                    @as(*Variant, @ptrCast(p_return)).* = Variant.init(@call(.auto, method, args));
                 }
             }
         }
@@ -535,7 +535,7 @@ pub fn registerMethod(comptime T: type, comptime name: [:0]const u8) void {
     MethodBinder.method_name = core.StringName.initFromLatin1Chars(name);
     MethodBinder.arg_metadata[0] = c.GDEXTENSION_METHOD_ARGUMENT_METADATA_NONE;
     MethodBinder.arg_properties[0] = c.GDExtensionPropertyInfo{
-        .type = @intCast(Variant.getVariantType(MethodBinder.ReturnType.?)),
+        .type = @intFromEnum(Variant.Tag.forType(MethodBinder.ReturnType.?)),
         .name = @ptrCast(@constCast(&core.StringName.init())),
         .class_name = @ptrCast(@constCast(&core.StringName.init())),
         .hint = @intFromEnum(global.PropertyHint.property_hint_none),
@@ -545,7 +545,7 @@ pub fn registerMethod(comptime T: type, comptime name: [:0]const u8) void {
 
     inline for (1..MethodBinder.ArgCount) |i| {
         MethodBinder.arg_properties[i] = c.GDExtensionPropertyInfo{
-            .type = @intCast(Variant.getVariantType(MethodBinder.ArgsTuple[i].type)),
+            .type = @intFromEnum(Variant.Tag.forType(MethodBinder.ArgsTuple[i].type)),
             .name = @ptrCast(@constCast(&core.StringName.init())),
             .class_name = getClassName(MethodBinder.ArgsTuple[i].type),
             .hint = @intFromEnum(global.PropertyHint.property_hint_none),

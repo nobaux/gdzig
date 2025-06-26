@@ -595,14 +595,14 @@ fn generateProc(w: *Writer, fn_node: anytype, class_name: []const u8, func_name:
         , .{args.items.len - 1});
         for (0..args.items.len - 1) |i| {
             if (util.isStringType(arg_types.items[i])) {
-                try w.printLine("args[{d}] = &godot.Variant.initFrom(godot.core.String.initFromLatin1Chars({s}));", .{ i, args.items[i] });
+                try w.printLine("args[{d}] = &godot.Variant.init(godot.core.String.initFromLatin1Chars({s}));", .{ i, args.items[i] });
             } else {
-                try w.printLine("args[{d}] = &godot.Variant.initFrom({s});", .{ i, args.items[i] });
+                try w.printLine("args[{d}] = &godot.Variant.init({s});", .{ i, args.items[i] });
             }
         }
         try w.printLine(
             \\inline for(fields, 0..)|f, i|{{
-            \\    args[{d}+i] = &godot.Variant.initFrom(@field(varargs, f.name));
+            \\    args[{d}+i] = &godot.Variant.init(@field(varargs, f.name));
             \\}}
         , .{args.items.len - 1});
 
@@ -659,7 +659,7 @@ fn generateProc(w: *Writer, fn_node: anytype, class_name: []const u8, func_name:
                 if (std.mem.eql(u8, return_type, "Variant")) {
                     try w.printLine("godot.core.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &result, &err);", .{self_ptr});
                 } else {
-                    try w.writeLine("var ret:Variant = Variant.init();");
+                    try w.writeLine("var ret: Variant = .nil;");
                     try w.printLine("godot.core.objectMethodBindCall(method, {s}, @ptrCast(@alignCast(&args[0])), args.len, &ret, &err);", .{self_ptr});
                     if (need_return) {
                         try w.printLine("result = ret.as({s});", .{return_type});
@@ -790,8 +790,6 @@ fn generateCore(ctx: *Context) !void {
             }
         }
 
-        try w.writeLine("godot.Variant.initBindings();");
-
         for (ctx.all_engine_classes.items) |cls| {
             try w.printLine("godot.getClassName({0s}).* = godot.core.StringName.initFromLatin1Chars(\"{0s}\");", .{cls});
         }
@@ -840,7 +838,7 @@ fn generateImports(w: *Writer, imports: *const Imports) !void {
         if (std.mem.startsWith(u8, import.*, "Vector")) {
             try w.printLine("const {0s} = @import(\"vector\").{0s};", .{import.*});
         } else if (std.mem.eql(u8, import.*, "Variant")) {
-            try w.writeLine("const Variant = @import(\"../Variant.zig\");");
+            try w.writeLine("const Variant = @import(\"../Variant.zig\").Variant;");
         } else if (std.mem.eql(u8, import.*, "global")) {
             try w.writeLine("const global = @import(\"global.zig\");");
         } else {

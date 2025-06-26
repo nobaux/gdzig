@@ -81,7 +81,7 @@ pub const Field = struct {
 
     pub fn fromGlobalEnum(allocator: Allocator, api: GodotApi.GlobalEnum.Value, default: i64) !Field {
         const doc = if (api.description) |desc| try allocator.dupe(u8, desc) else null;
-        errdefer allocator.free(doc orelse &.{});
+        errdefer allocator.free(doc orelse "");
 
         const name = try case.allocTo(allocator, .snake, api.name);
         errdefer allocator.free(name);
@@ -106,7 +106,7 @@ pub const Const = struct {
 
     pub fn fromGlobalEnum(allocator: Allocator, api: GodotApi.GlobalEnum.Value) !Const {
         const doc = if (api.description) |desc| try allocator.dupe(u8, desc) else null;
-        errdefer allocator.free(doc orelse &.{});
+        errdefer allocator.free(doc orelse "");
 
         const name = try case.allocTo(allocator, .snake, api.name);
         errdefer allocator.free(name);

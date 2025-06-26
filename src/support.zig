@@ -63,6 +63,26 @@ pub inline fn bindFunction(
     return bind(name, callback);
 }
 
+pub inline fn bindVariantFrom(comptime @"type": godot.Variant.Tag) VariantFrom {
+    const callback = struct {
+        fn callback() VariantFrom {
+            return core.getVariantFromTypeConstructor(@intFromEnum(@"type")).?;
+        }
+    }.callback;
+
+    return bind(null, callback);
+}
+
+pub inline fn bindVariantTo(comptime @"type": godot.Variant.Tag) VariantTo {
+    const callback = struct {
+        fn callback() VariantTo {
+            return core.getVariantToTypeConstructor(@intFromEnum(@"type")).?;
+        }
+    }.callback;
+
+    return bind(null, callback);
+}
+
 inline fn bind(
     comptime name: ?[]const u8,
     comptime callback: anytype,
@@ -100,3 +120,5 @@ const ClassMethod = Child(c.GDExtensionMethodBindPtr);
 const Constructor = Child(c.GDExtensionPtrConstructor);
 const Destructor = Child(c.GDExtensionPtrDestructor);
 const Function = Child(c.GDExtensionPtrUtilityFunction);
+const VariantFrom = Child(c.GDExtensionVariantFromTypeConstructorFunc);
+const VariantTo = Child(c.GDExtensionTypeFromVariantConstructorFunc);
