@@ -54,3 +54,7 @@ const GodotApi = @import("GodotApi.zig");
 comptime {
     _ = @import("writer.zig");
 }
+
+test {
+    _ = @import("Context/docs.zig");
+}
