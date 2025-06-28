@@ -210,7 +210,7 @@ const ClassUserData = struct {
 
 var registered_classes: std.StringHashMap(bool) = undefined;
 pub fn registerClass(comptime T: type) void {
-    const class_name = getBaseName(@typeName(T));
+    const class_name = comptime getBaseName(@typeName(T));
     //prevent duplicate registration
     if (registered_classes.contains(class_name)) return;
     registered_classes.put(class_name, true) catch unreachable;
