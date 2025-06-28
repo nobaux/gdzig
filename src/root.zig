@@ -628,6 +628,8 @@ pub fn init() void {
 pub fn deinit() void {
     var key_iter = registered_classes.keyIterator();
     while (key_iter.next()) |it| {
+        var class_name = core.StringName.fromUtf8(it.*);
+        defer class_name.deinit();
         core.classdbUnregisterExtensionClass(core.p_library, @ptrCast(&class_name));
     }
     registered_signals.deinit();
