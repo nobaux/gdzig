@@ -28,12 +28,14 @@
 
 const std = @import("std");
 
+pub var interface: Interface = undefined;
+
 // Bindgen modules
-pub const Interface = @import("Interface.zig");
 pub const builtin = @import("builtin.zig");
 pub const class = @import("class.zig");
 pub const general = @import("general.zig");
 pub const global = @import("global.zig");
+pub const Interface = @import("Interface.zig");
 pub const math = @import("math.zig");
 pub const random = @import("random.zig");
 
@@ -46,8 +48,6 @@ pub const object = @import("object.zig");
 pub const register = @import("register.zig");
 pub const string = @import("string.zig");
 pub const support = @import("support.zig");
-
-pub var interface: Interface = undefined;
 
 // Re-exports
 pub const connect = object.connect;
