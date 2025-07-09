@@ -207,6 +207,25 @@ pub const Type = union(enum) {
             },
         };
     }
+
+    pub fn getName(self: Type) ?[]const u8 {
+        return switch (self) {
+            inline .basic, .class, .@"enum", .flag => |name| name,
+            .@"union" => std.debug.panic("Can't get name for union type", .{}),
+            .array => |array| {
+                if (array) |arr| {
+                    return arr.getName();
+                }
+                return null;
+            },
+            .void => "void",
+            .string => "String",
+            .node_path => "NodePath",
+            .string_name => "StringName",
+            .variant => "Variant",
+            .pointer => |t| t.getName(),
+        };
+    }
 };
 
 const std = @import("std");
