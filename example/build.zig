@@ -38,7 +38,7 @@ pub fn build(b: *std.Build) !void {
         godot_path, "--path",
     });
     run_cmd.addDirectoryArg(project_path);
-    run_cmd.step.dependOn(b.getInstallStep());
+    run_cmd.step.dependOn(load_step);
     const run_step = b.step("run", "Run with Godot");
     run_step.dependOn(&run_cmd.step);
 }

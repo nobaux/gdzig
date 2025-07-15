@@ -103,7 +103,7 @@ pub fn registerClass(comptime T: type) void {
                 }
             }
             if (p_list) |list| {
-                heap.free(@ptrCast(@constCast(list)));
+                heap.general_allocator.free(list[0..p_count]);
             }
         }
 
