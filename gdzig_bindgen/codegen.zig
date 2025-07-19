@@ -1087,7 +1087,7 @@ fn writeModuleFunction(w: *Writer, function: *const Context.Function) !void {
 
     try w.printLine(
         \\if ({0s}_ptr == null) {{
-        \\    {0s}_ptr = raw.variantGetPtrUtilityFunction(@ptrCast(StringName.fromComptimeLatin1("{1s}")), {2d});
+        \\    {0s}_ptr = raw.variantGetPtrUtilityFunction(@ptrCast(@constCast(&StringName.fromComptimeLatin1("{1s}"))), {2d});
         \\}}
         \\{0s}_ptr.?({3s}, @ptrCast(&args), args.len);
     , .{
