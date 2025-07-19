@@ -131,6 +131,10 @@ pub fn typeName(comptime T: type) *builtin.StringName {
     return &Static.name;
 }
 
+pub fn signalName(comptime S: type) builtin.StringName {
+    return .fromComptimeLatin1(meta.signalName(S));
+}
+
 comptime {
     std.testing.refAllDeclsRecursive(@This());
 }
