@@ -141,8 +141,16 @@ pub fn _notification(self: *ExampleNode, what: i32) void {
 }
 
 pub fn _getPropertyList(_: *ExampleNode, p: *godot.object.PropertyBuilder) !void {
-    try p.append(ExampleNode, "property1", .{});
-    try p.append(ExampleNode, "property2", .{});
+    var win = String.fromLatin1("Windows");
+    defer win.deinit();
+    const os_name = OS.getName();
+
+    if (os_name.casecmpTo(win) == 0){
+        std.log.err("On Windows this going to fail!!!\n", .{});
+    } else {
+        try p.append(ExampleNode, "property1", .{});
+        try p.append(ExampleNode, "property2", .{});
+    }
 }
 
 pub fn _propertyCanRevert(_: *ExampleNode, name: StringName) bool {
@@ -239,6 +247,7 @@ const StringName = godot.builtin.StringName;
 const Variant = godot.builtin.Variant;
 const Vector3 = godot.builtin.Vector3;
 const SceneTreeTimer = godot.class.SceneTreeTimer;
+const OS = godot.class.OS;
 
 const GuiNode = @import("GuiNode.zig");
 const SignalNode = @import("SignalNode.zig");
