@@ -27,8 +27,18 @@ pub fn build(b: *std.Build) !void {
         .use_llvm = true,
     });
 
-    b.lib_dir = "./project/lib";
-    b.installArtifact(lib);
+    const out_path = "../project/lib";
+    // b.lib_dir = out_path;
+    const install = b.addInstallArtifact(lib, .{
+        .dest_dir = .{
+            .override = .{ .custom = out_path },
+        },
+        .pdb_dir = .{
+            .override = .{ .custom = out_path },
+        },
+    });
+
+    b.default_step.dependOn(&install.step);
 
     const project_path = b.path("./project");
     const load_cmd = b.addSystemCommand(&.{
