@@ -189,12 +189,12 @@ pub const PropertyInfo = extern struct {
         const name = try allocator.create(StringName);
         name.* = StringName.fromComptimeLatin1(field_name);
 
+        // TODO: this causes a panic
         const hint_string = if (opt.hint_string.len > 0) blk: {
-            // TODO: this causes a panic
             const hint_string = try allocator.create(String);
             hint_string.* = String.fromLatin1(opt.hint_string);
             break :blk hint_string;
-        } else null;
+        } else null; // WARNING: this null causes the crash
 
         return .{
             .class_name = meta.typeName(T),

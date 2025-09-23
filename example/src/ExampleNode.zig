@@ -15,8 +15,8 @@ property2: Vector3 = .zero,
 
 fps_counter: *Label,
 
-const property1_name: [:0]const u8 = "Property1";
-const property2_name: [:0]const u8 = "Property2";
+const property1_name: [:0]const u8 = "property1";
+const property2_name: [:0]const u8 = "property2";
 
 pub fn init(base: *Node) ExampleNode {
     std.log.info("init {s}", .{@typeName(ExampleNode)});
@@ -141,16 +141,8 @@ pub fn _notification(self: *ExampleNode, what: i32) void {
 }
 
 pub fn _getPropertyList(_: *ExampleNode, p: *godot.object.PropertyBuilder) !void {
-    var win = String.fromLatin1("Windows");
-    defer win.deinit();
-    const os_name = OS.getName();
-
-    if (os_name.casecmpTo(win) == 0){
-        std.log.err("On Windows this going to fail!!!\n", .{});
-    } else {
-        try p.append(ExampleNode, "property1", .{});
-        try p.append(ExampleNode, "property2", .{});
-    }
+    try p.append(ExampleNode, "property1", .{ .hint_string = "hint", });
+    try p.append(ExampleNode, "property2", .{ .hint_string = "hint", });
 }
 
 pub fn _propertyCanRevert(_: *ExampleNode, name: StringName) bool {
