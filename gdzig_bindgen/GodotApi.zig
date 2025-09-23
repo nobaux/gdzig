@@ -133,7 +133,7 @@ pub const Class = struct {
     is_refcounted: bool,
     is_instantiable: bool,
     inherits: ?[]const u8 = null,
-    api_type: []const u8,
+    api_type: ?[]const u8,
 
     constants: ?[]Constant = null,
     enums: ?[]Enum = null,
@@ -160,12 +160,14 @@ pub const Class = struct {
         name: []const u8,
         setter: []const u8 = "",
         getter: []const u8,
+        description: ?[]const u8 = null,
         index: i64 = -1,
     };
 
     pub const Constant = struct {
         name: []const u8,
         value: i64,
+        description: ?[]const u8,
     };
 
     // The schemas are identical.
@@ -202,7 +204,6 @@ pub const Class = struct {
         pub const ReturnValue = struct {
             type: []const u8,
             meta: []const u8 = "",
-            default_value: []const u8 = "",
         };
     };
 
@@ -231,7 +232,7 @@ pub const GlobalEnum = struct {
     pub const Value = struct {
         name: []const u8,
         value: i64,
-        description: ?[]const u8 = null,
+        description: ?[]const u8,
     };
 };
 
@@ -310,9 +311,7 @@ pub fn findParent(self: @This(), class: Class) ?Class {
 pub fn parseFromReader(arena: *ArenaAllocator, reader: *Reader) !Parsed(GodotApi) {
     var json_reader: JsonReader = .init(arena.allocator(), reader);
 
-    return try std.json.parseFromTokenSource(GodotApi, arena.allocator(), &json_reader, .{
-        .ignore_unknown_fields = true,
-    });
+    return try std.json.parseFromTokenSource(GodotApi, arena.allocator(), &json_reader, .{});
 }
 
 const std = @import("std");
