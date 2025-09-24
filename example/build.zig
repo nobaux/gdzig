@@ -28,14 +28,11 @@ pub fn build(b: *std.Build) !void {
     });
 
     const out_path = "../project/lib";
-    // b.lib_dir = out_path;
+    // b.lib_dir = "./project/lib";
     const install = b.addInstallArtifact(lib, .{
         .dest_dir = .{
             .override = .{ .custom = out_path },
-        },
-        .pdb_dir = .{
-            .override = .{ .custom = out_path },
-        },
+        }
     });
 
     b.default_step.dependOn(&install.step);
