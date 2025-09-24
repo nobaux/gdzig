@@ -18,6 +18,7 @@ pub const Header = struct {
     version_status: []const u8,
     version_build: []const u8,
     version_full_name: []const u8,
+    precision: ?[]const u8 = null,
 };
 
 pub const SizeInfo = struct {
@@ -118,7 +119,7 @@ pub const Builtin = struct {
         name: []const u8,
         type: []const u8,
         value: []const u8,
-        description: []const u8,
+        description: []const u8 = "",
     };
 
     pub const Member = struct {
@@ -141,8 +142,8 @@ pub const Class = struct {
     properties: ?[]Property = null,
     signals: ?[]Signal = null,
 
-    brief_description: ?[]const u8,
-    description: ?[]const u8,
+    brief_description: ?[]const u8 = null,
+    description: ?[]const u8 = null,
 
     pub fn findMethod(self: Class, name: []const u8) ?Method {
         if (self.methods) |methods| {
@@ -167,7 +168,7 @@ pub const Class = struct {
     pub const Constant = struct {
         name: []const u8,
         value: i64,
-        description: ?[]const u8,
+        description: ?[]const u8 = null,
     };
 
     // The schemas are identical.
@@ -232,7 +233,7 @@ pub const GlobalEnum = struct {
     pub const Value = struct {
         name: []const u8,
         value: i64,
-        description: ?[]const u8,
+        description: ?[]const u8 = null,
     };
 };
 
@@ -312,6 +313,26 @@ pub fn parseFromReader(arena: *ArenaAllocator, reader: *Reader) !Parsed(GodotApi
     var json_reader: JsonReader = .init(arena.allocator(), reader);
 
     return try std.json.parseFromTokenSource(GodotApi, arena.allocator(), &json_reader, .{});
+}
+
+test "json convertion" {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const cwd = std.fs.cwd();
+
+    var vendor = try cwd.openDir("./vendor/", .{});
+    defer vendor.close();
+
+    const extension_api = try vendor.openFile("extension_api.json", .{});
+
+    var buf: [4096]u8 = undefined;
+    var reader = extension_api.reader(&buf);
+
+    const godot_api = try parseFromReader(&arena, &reader.interface);
+    const api: GodotApi = godot_api.value;
+
+    std.debug.print("{s}\n", .{api.header.version_full_name});
 }
 
 const std = @import("std");
