@@ -24,7 +24,7 @@
             .hash = "oopz-0.0.0-pFJy_dFQAABLysrK6k4nKiYCQZ3ttXIg55pgLuEmTHrC",
         },
     },
-    .minimum_zig_version = "0.14.1",
+    .minimum_zig_version = "0.15.1",
 
     .paths = .{
         "LICENSE",
